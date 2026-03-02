@@ -5,17 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>班级排座位系统</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/mobile-drag-drop/3.0.0-rc.0/default.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/mobile-drag-drop/3.0.0-rc.0/index.min.js"></script>
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/mobile-drag-drop@2.3.0/default.min.css">
+<script src="https://cdn.jsdelivr.net/npm/mobile-drag-drop@2.3.0/index.min.js"></script>
 
 <style>
     body { 
         font-family: 'Microsoft YaHei', sans-serif; 
         margin: 20px; 
         background-color: #f4f6f9;
-        /* 防止手机端长按选中文字干扰拖拽 */
-        -webkit-user-select: none;
-        user-select: none;
     }
     h1 { text-align: center; color: #333; margin-bottom: 30px; }
     
@@ -24,8 +22,7 @@
         display: flex;
         gap: 30px;
         align-items: flex-start;
-        /* 适配手机端，如果屏幕小则自动换行 */
-        flex-wrap: wrap; 
+        flex-wrap: wrap; /* 兼容小屏幕折行 */
     }
 
     /* 左侧：设置面板和名单 */
@@ -35,8 +32,6 @@
         display: flex;
         flex-direction: column;
         gap: 15px;
-        /* 手机端占满全宽 */
-        max-width: 100%;
     }
 
     .setup-box, .list-box {
@@ -157,9 +152,7 @@
         border-radius: 8px;
         box-shadow: 0 4px 10px rgba(0,0,0,0.1);
         position: relative;
-        overflow-x: auto; /* 防止手机端被撑爆 */
-        width: 100%;
-        box-sizing: border-box;
+        overflow-x: auto; /* 手机端容许左右滑动 */
     }
 
     .blackboard {
@@ -187,7 +180,7 @@
     }
     .instruction-tip b { color: #d32f2f; }
 
-    /* 班级整体容器包裹 */
+    /* 班级整体容器包裹 (用于讲台与座位的上下颠倒) */
     #classroom-wrapper {
         display: flex;
         flex-direction: column;
@@ -244,7 +237,7 @@
         background-color: transparent;
     }
     
-    /* === 座位样式 === */
+    /* === 座位样式与隐藏（伪删除）样式 === */
     .seat { 
         width: 66px; 
         height: 40px; 
@@ -278,6 +271,7 @@
         display: none;
     }
     .seat.deleted:hover::after { display: block; }
+
 
     /* 底部控制区 */
     .bottom-area {
@@ -333,7 +327,6 @@
         gap: 10px;
         align-items: center;
         margin-top: 10px;
-        box-sizing: border-box;
     }
     .github-sync-row {
         display: flex;
@@ -341,7 +334,6 @@
         align-items: center;
         width: 100%;
         justify-content: center;
-        flex-wrap: wrap; /* 手机端换行 */
     }
     .github-sync-area input[type="password"] {
         padding: 8px;
@@ -349,14 +341,12 @@
         border: 1px solid #555;
         background: #333;
         color: white;
-        width: 100%;
-        max-width: 300px;
-        box-sizing: border-box;
+        width: 300px;
     }
     .btn-github-save { background-color: #2ea043; }
     .btn-github-load { background-color: #0366d6; }
 
-    /* 右下角添加新框工具 - 关键：加入 touch-action: none 防止移动端拖拽冲突 */
+    /* 右下角添加新框工具 */
     .rect-tool {
         position: absolute;
         right: 0;
@@ -368,16 +358,17 @@
         border-radius: 6px;
         cursor: grab;
         border: 2px dashed #e1bee7;
+        user-select: none;
         box-shadow: 0 2px 4px rgba(0,0,0,0.2);
         transition: transform 0.1s;
-        touch-action: none; 
+        touch-action: none; /* === 新增：防手机默认滑动 === */
     }
     .rect-tool:active { cursor: grabbing; transform: scale(0.95); }
 
-    /* 拖拽学生卡片样式 - 关键：加入 touch-action: none 防止移动端拖拽冲突 */
+    /* 拖拽学生卡片样式 */
     .student { 
-        width: 60px; height: 34px; display: flex; align-items: center; justify-content: center; border-radius: 4px; cursor: grab; font-weight: bold; font-size: 14px; box-shadow: 0 2px 4px rgba(0,0,0,0.2); transition: transform 0.1s; z-index: 2;
-        touch-action: none; 
+        width: 60px; height: 34px; display: flex; align-items: center; justify-content: center; border-radius: 4px; cursor: grab; font-weight: bold; font-size: 14px; user-select: none; box-shadow: 0 2px 4px rgba(0,0,0,0.2); transition: transform 0.1s; z-index: 2;
+        touch-action: none; /* === 新增：防手机默认滑动 === */
     }
     .student.boy { background-color: #64b5f6; color: white; border: 1px solid #1e88e5; }
     .student.girl { background-color: #f06292; color: white; border: 1px solid #d81b60; }
@@ -386,7 +377,7 @@
 
     /* 自定义组框样式 */
     .custom-box { position: absolute; border: 4px dashed; pointer-events: none; z-index: 5; border-radius: 8px; transition: border-color 0.2s, background-color 0.2s; }
-    .custom-box .handle { position: absolute; background: #fff; border: 2px solid; border-radius: 50%; pointer-events: auto; z-index: 10; touch-action: none; }
+    .custom-box .handle { position: absolute; background: #fff; border: 2px solid; border-radius: 50%; pointer-events: auto; z-index: 10; touch-action: none; /* === 新增：防手机默认滑动 === */ }
     .custom-box .handle.top { top: -8px; left: 50%; width: 12px; height: 12px; transform: translateX(-50%); cursor: ns-resize; }
     .custom-box .handle.bottom { bottom: -8px; left: 50%; width: 12px; height: 12px; transform: translateX(-50%); cursor: ns-resize; }
     .custom-box .handle.left { top: 50%; left: -8px; width: 12px; height: 12px; transform: translateY(-50%); cursor: ew-resize; }
@@ -397,7 +388,8 @@
 
     /* 框体的整体移动按钮 */
     .custom-box .move-btn {
-        position: absolute; top: -12px; left: -12px; width: 22px; height: 22px; background: #2196F3; color: white; border-radius: 50%; text-align: center; line-height: 20px; cursor: move; pointer-events: auto; font-size: 14px; box-shadow: 0 2px 4px rgba(0,0,0,0.3); z-index: 10; touch-action: none;
+        position: absolute; top: -12px; left: -12px; width: 22px; height: 22px; background: #2196F3; color: white; border-radius: 50%; text-align: center; line-height: 20px; cursor: move; pointer-events: auto; font-size: 14px; box-shadow: 0 2px 4px rgba(0,0,0,0.3); z-index: 10;
+        touch-action: none; /* === 新增：防手机默认滑动 === */
     }
     .custom-box .move-btn:hover { background: #1976D2; }
 
@@ -461,7 +453,7 @@
         <div class="instruction-tip">
             💡 <b>操作提示</b>：
             ① 左上角 <b>✥</b> 可拖动整个框，白点可拉伸。
-            ② 在座位上 <b>右键单击</b> 可将其隐藏作废；在半透明废弃位置上 <b>双击</b> 即可恢复。
+            ② 在座位上 <b>右键单击(长按)</b> 可将其隐藏作废；在半透明废弃位置上 <b>双击(连按)</b> 即可恢复。
         </div>
         
         <div id="classroom-wrapper">
@@ -514,12 +506,11 @@
 </div>
 
 <script>
-    // === 新增：激活移动端拖拽支持 ===
+    // === 新增：配置手机端原生拖拽支持 (Polyfill) ===
     MobileDragDrop.polyfill({
-        // 允许拖拽到屏幕边缘时自动滚动页面
-        dragImageTranslateOverride: MobileDragDrop.scrollBehaviourDragImageTranslateOverride
+        holdToDrag: 100 // 长按100毫秒后才开始拖动，防止误触导致页面无法滑动
     });
-    // 防止 iOS Safari 在拖拽时页面跟着乱滑
+    // 防止手机端拖拽时整个网页跟着滚动
     window.addEventListener('touchmove', function() {}, {passive: false});
 
     let studentsData = [];
@@ -541,6 +532,7 @@
     let draggedElement = null;
     let activeBox = null, activeHandle = null, startX, startY, startRect;
 
+    // === GitHub 同步参数配置 ===
     const GITHUB_OWNER = 'Dzreal'; 
     const GITHUB_REPO = 'Classseat-Data'; 
     const GITHUB_FILE_PATH = 'seat_data.json'; 
@@ -1183,7 +1175,7 @@
         let moveBtn = document.createElement('div');
         moveBtn.className = 'move-btn';
         moveBtn.innerText = '✥';
-        // 兼容电脑鼠标和手机触摸
+        // === 新增：兼容双端移动事件 ===
         moveBtn.onmousedown = function(e) { startMoveBox(e, boxObj); };
         moveBtn.ontouchstart = function(e) { startMoveBox(e, boxObj); };
         boxContainer.appendChild(moveBtn);
@@ -1201,7 +1193,7 @@
             let handle = document.createElement('div');
             handle.className = 'handle ' + pos;
             handle.style.borderColor = color;
-            // 兼容电脑鼠标和手机触摸
+            // === 新增：兼容双端拉伸事件 ===
             handle.onmousedown = function(e) { startResize(e, boxObj, pos); };
             handle.ontouchstart = function(e) { startResize(e, boxObj, pos); };
             boxContainer.appendChild(handle);
@@ -1241,30 +1233,27 @@
 
     window.addEventListener('resize', () => customBoxes.forEach(b => b.updateLayout()));
 
+    // === 新增：全面兼容手机 e.touches 的事件追踪 ===
     function startResize(e, box, pos) {
         e.preventDefault(); e.stopPropagation();
         activeBox = box; activeHandle = pos;
-        
-        // 判断是触摸还是鼠标点击，获取正确的坐标
-        startX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
-        startY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
-        
+        startX = e.touches ? e.touches[0].clientX : e.clientX;
+        startY = e.touches ? e.touches[0].clientY : e.clientY;
         startRect = box.el.getBoundingClientRect();
         
         document.addEventListener('mousemove', onBoxMouseMove);
         document.addEventListener('mouseup', onBoxMouseUp);
-        document.addEventListener('touchmove', onBoxMouseMove, {passive: false});
+        document.addEventListener('touchmove', onBoxMouseMove, { passive: false });
         document.addEventListener('touchend', onBoxMouseUp);
     }
 
     function onBoxMouseMove(e) {
         if (!activeBox) return;
-        if (e.type.includes('touch')) e.preventDefault(); // 阻止手机端滑动屏幕
-
-        let currentX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
-        let currentY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
-
-        let deltaX = currentX - startX, deltaY = currentY - startY;
+        if (e.type === 'touchmove') e.preventDefault(); // 防止手机滑动页面
+        
+        let clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        let clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        let deltaX = clientX - startX, deltaY = clientY - startY;
         let classroomRect = classroom.getBoundingClientRect();
         let newTop = startRect.top, newBottom = startRect.bottom, newLeft = startRect.left, newRight = startRect.right;
         
@@ -1279,45 +1268,30 @@
         activeBox.el.style.height = (newBottom - newTop) + 'px';
     }
 
-    function onBoxMouseUp(e) {
-        document.removeEventListener('mousemove', onBoxMouseMove);
-        document.removeEventListener('mouseup', onBoxMouseUp);
-        document.removeEventListener('touchmove', onBoxMouseMove);
-        document.removeEventListener('touchend', onBoxMouseUp);
-
-        if (activeBox) {
-            recalculateBoxSeats(activeBox);
-            activeBox = null; activeHandle = null;
-        }
-    }
-
     let moveActiveBox = null;
     let moveStartX, moveStartY, moveStartRect;
 
     function startMoveBox(e, box) {
         e.preventDefault(); e.stopPropagation();
         moveActiveBox = box;
-        
-        moveStartX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
-        moveStartY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
-        
+        moveStartX = e.touches ? e.touches[0].clientX : e.clientX;
+        moveStartY = e.touches ? e.touches[0].clientY : e.clientY;
         moveStartRect = box.el.getBoundingClientRect();
         
         document.addEventListener('mousemove', onMoveBoxMove);
         document.addEventListener('mouseup', onMoveBoxUp);
-        document.addEventListener('touchmove', onMoveBoxMove, {passive: false});
+        document.addEventListener('touchmove', onMoveBoxMove, { passive: false });
         document.addEventListener('touchend', onMoveBoxUp);
     }
 
     function onMoveBoxMove(e) {
         if (!moveActiveBox) return;
-        if (e.type.includes('touch')) e.preventDefault(); // 阻止手机端滑动屏幕
-
-        let currentX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
-        let currentY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
-
-        let deltaX = currentX - moveStartX;
-        let deltaY = currentY - moveStartY;
+        if (e.type === 'touchmove') e.preventDefault(); // 防止手机滑动页面
+        
+        let clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        let clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        let deltaX = clientX - moveStartX;
+        let deltaY = clientY - moveStartY;
         let classroomRect = classroom.getBoundingClientRect();
 
         let newTop = moveStartRect.top + deltaY;
@@ -1327,17 +1301,28 @@
         moveActiveBox.el.style.left = (newLeft - classroomRect.left) + 'px';
     }
 
+    function onBoxMouseUp(e) {
+        document.removeEventListener('mousemove', onBoxMouseMove);
+        document.removeEventListener('mouseup', onBoxMouseUp);
+        document.removeEventListener('touchmove', onBoxMouseMove);
+        document.removeEventListener('touchend', onBoxMouseUp);
+        if (activeBox) {
+            recalculateBoxSeats(activeBox);
+            activeBox = null; activeHandle = null;
+        }
+    }
+    
     function onMoveBoxUp(e) {
         document.removeEventListener('mousemove', onMoveBoxMove);
         document.removeEventListener('mouseup', onMoveBoxUp);
         document.removeEventListener('touchmove', onMoveBoxMove);
         document.removeEventListener('touchend', onMoveBoxUp);
-
         if (moveActiveBox) {
             recalculateBoxSeats(moveActiveBox);
             moveActiveBox = null;
         }
     }
+    // === 结束：全面兼容手机 e.touches 的事件追踪 ===
 
     function recalculateBoxSeats(boxTarget) {
         let visualRect = boxTarget.el.getBoundingClientRect();
