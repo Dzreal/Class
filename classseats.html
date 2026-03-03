@@ -6,26 +6,22 @@
 <title>班级排座位系统</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
-<link rel="stylesheet" href="https://unpkg.com/mobile-drag-drop@2.3.0/default.min.css">
-<script src="https://unpkg.com/mobile-drag-drop@2.3.0/index.min.js"></script>
-
 <style>
     body { 
         font-family: 'Microsoft YaHei', sans-serif; 
         margin: 20px; 
         background-color: #f4f6f9;
+        -webkit-tap-highlight-color: transparent; /* 去除手机点击的高亮底色 */
     }
     h1 { text-align: center; color: #333; margin-bottom: 30px; }
     
-    /* 主体布局：左侧控制区，右侧教室 */
+    /* === 主体布局 === */
     .main-container {
         display: flex;
         gap: 30px;
         align-items: flex-start;
-        flex-wrap: wrap; /* 兼容手机端小屏幕折行 */
     }
 
-    /* 左侧：设置面板和名单 */
     .left-panel {
         width: 340px;
         flex-shrink: 0;
@@ -52,347 +48,125 @@
     }
 
     /* 座位设置表单 */
-    .setup-form {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 10px;
-        font-size: 15px;
-    }
-    .setup-form label {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        background: #f9f9f9;
-        padding: 6px 10px;
-        border-radius: 4px;
-        border: 1px solid #ddd;
-    }
-    .setup-form select {
-        padding: 4px;
-        font-size: 14px;
-        outline: none;
-        border: 1px solid #ccc;
-        border-radius: 4px;
-    }
+    .setup-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 15px; }
+    .setup-form label { display: flex; align-items: center; justify-content: space-between; background: #f9f9f9; padding: 6px 10px; border-radius: 4px; border: 1px solid #ddd; }
+    .setup-form select { padding: 4px; font-size: 14px; outline: none; border: 1px solid #ccc; border-radius: 4px; }
+    
     .btn-generate {
-        grid-column: span 2;
-        padding: 10px;
-        background-color: #ff9800;
-        color: white;
-        font-weight: bold;
-        border: none;
-        border-radius: 5px;
-        cursor: pointer;
-        font-size: 16px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.15);
-        transition: 0.2s;
+        grid-column: span 2; padding: 10px; background-color: #ff9800; color: white; font-weight: bold; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.15); transition: 0.2s;
     }
     .btn-generate:hover { background-color: #f57c00; }
 
     /* 导入文件区域 */
-    .upload-area {
-        grid-column: span 2;
-        padding: 12px;
-        background-color: #e3f2fd;
-        border: 2px dashed #2196f3;
-        border-radius: 6px;
-        text-align: center;
-        margin-bottom: 5px;
-    }
+    .upload-area { grid-column: span 2; padding: 12px; background-color: #e3f2fd; border: 2px dashed #2196f3; border-radius: 6px; text-align: center; margin-bottom: 5px; }
     .upload-area input[type="file"] { display: none; }
-    .upload-label {
-        display: inline-block;
-        background: #2196f3;
-        color: white;
-        padding: 8px 15px;
-        border-radius: 4px;
-        cursor: pointer;
-        font-weight: bold;
-        font-size: 14px;
-        transition: 0.2s;
-    }
+    .upload-label { display: inline-block; background: #2196f3; color: white; padding: 8px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 14px; transition: 0.2s; }
     .upload-label:hover { background: #1976d2; }
     .upload-tip { font-size: 12px; color: #666; margin-top: 8px; }
 
     /* 名单池 */
-    .pools {
-        display: flex;
-        gap: 10px;
-    }
-    .pool-col {
-        flex: 1;
-        min-height: 500px;
-        border: 2px dashed #bbb;
-        border-radius: 6px;
-        padding: 10px;
-        background-color: #fafafa;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 10px;
-    }
-    .pool-col h3 {
-        margin: 0 0 10px 0;
-        font-size: 16px;
-        color: #666;
-        text-align: center;
-        width: 100%;
-        border-bottom: 1px solid #ddd;
-        padding-bottom: 5px;
-    }
+    .pools { display: flex; gap: 10px; }
+    .pool-col { flex: 1; min-height: 500px; border: 2px dashed #bbb; border-radius: 6px; padding: 10px; background-color: #fafafa; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+    .pool-col h3 { margin: 0 0 10px 0; font-size: 16px; color: #666; text-align: center; width: 100%; border-bottom: 1px solid #ddd; padding-bottom: 5px; }
 
     /* 右侧：教室区域 */
     .right-panel {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        background: #fff;
-        padding: 20px;
-        border-radius: 8px;
-        box-shadow: 0 4px 10px rgba(0,0,0,0.1);
-        position: relative;
-        overflow-x: auto; /* 手机端容许左右滑动 */
+        flex: 1; display: flex; flex-direction: column; align-items: center; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); position: relative; overflow-x: auto;
     }
 
-    .blackboard {
-        width: 60%;
-        height: 40px;
-        background-color: #4caf50;
-        color: white;
-        text-align: center;
-        line-height: 40px;
-        margin: 0 auto 10px auto;
-        border-radius: 5px;
-        font-weight: bold;
-        letter-spacing: 10px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        transition: margin 0.3s;
-    }
-    
-    .instruction-tip {
-        font-size: 13px;
-        color: #888;
-        margin-bottom: 30px;
-        background: #fff9c4;
-        padding: 5px 15px;
-        border-radius: 12px;
-    }
+    .blackboard { width: 60%; height: 40px; background-color: #4caf50; color: white; text-align: center; line-height: 40px; margin: 0 auto 10px auto; border-radius: 5px; font-weight: bold; letter-spacing: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); transition: margin 0.3s; }
+    .instruction-tip { font-size: 13px; color: #888; margin-bottom: 30px; background: #fff9c4; padding: 5px 15px; border-radius: 12px; }
     .instruction-tip b { color: #d32f2f; }
 
-    /* 班级整体容器包裹 (用于讲台与座位的上下颠倒) */
-    #classroom-wrapper {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        width: 100%;
-    }
+    #classroom-wrapper { display: flex; flex-direction: column; align-items: center; width: 100%; }
+    #classroom { display: flex; justify-content: center; gap: 30px; position: relative; margin: 0 80px; }
 
-    #classroom { 
-        display: flex; 
-        justify-content: center; 
-        gap: 30px; 
-        position: relative;
-        margin: 0 80px; 
-    }
-
-    /* 门图示 */
-    .door {
-        position: absolute;
-        top: 0;
-        width: 40px;
-        height: 100px;
-        background: #8d6e63;
-        border: 3px solid #5d4037;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: white;
-        font-weight: bold;
-        writing-mode: vertical-rl;
-        border-radius: 4px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.2);
-        font-size: 18px;
-        letter-spacing: 5px;
-    }
-    .door.left { left: -70px; }
-    .door.right { right: -70px; }
+    .door { position: absolute; top: 0; width: 40px; height: 100px; background: #8d6e63; border: 3px solid #5d4037; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; writing-mode: vertical-rl; border-radius: 4px; box-shadow: 0 4px 6px rgba(0,0,0,0.2); font-size: 18px; letter-spacing: 5px; }
+    .door.left { left: -70px; } .door.right { right: -70px; }
     
-    /* 大组与小组 */
-    .group { 
-        display: flex; 
-        flex-direction: column;
-        gap: 15px; 
-        padding: 15px; 
-        background: #fdfdfd; 
-        border-radius: 8px;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-    }
+    .group { display: flex; flex-direction: column; gap: 15px; padding: 15px; background: #fdfdfd; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+    .subgroup { display: grid; gap: 8px; padding: 10px; border-radius: 8px; background-color: transparent; }
     
-    .subgroup {
-        display: grid;
-        gap: 8px;
-        padding: 10px;
-        border-radius: 8px;
-        background-color: transparent;
-    }
-    
-    /* === 座位样式与隐藏（伪删除）样式 === */
-    .seat { 
-        width: 66px; 
-        height: 40px; 
-        border: 2px dashed #ccc; 
-        border-radius: 6px; 
-        display: flex; 
-        align-items: center; 
-        justify-content: center; 
-        box-sizing: border-box;
-        background-color: #f9f9f9;
-        cursor: pointer;
-        position: relative;
-    }
+    .seat { width: 66px; height: 40px; border: 2px dashed #ccc; border-radius: 6px; display: flex; align-items: center; justify-content: center; box-sizing: border-box; background-color: #f9f9f9; cursor: pointer; position: relative; }
     .seat:hover { border-color: #999; }
-    
-    .seat.deleted {
-        border: 1px dashed #e0e0e0;
-        background-color: transparent;
-        opacity: 0.3;
-    }
-    .seat.deleted:hover {
-        border-color: #4CAF50;
-        opacity: 0.8;
-        background-color: #e8f5e9;
-    }
-    .seat.deleted::after {
-        content: "双击恢复";
-        font-size: 11px;
-        color: #4CAF50;
-        font-weight: bold;
-        display: none;
-    }
+    .seat.deleted { border: 1px dashed #e0e0e0; background-color: transparent; opacity: 0.3; }
+    .seat.deleted:hover { border-color: #4CAF50; opacity: 0.8; background-color: #e8f5e9; }
+    .seat.deleted::after { content: "双击恢复"; font-size: 11px; color: #4CAF50; font-weight: bold; display: none; }
     .seat.deleted:hover::after { display: block; }
 
     /* 底部控制区 */
-    .bottom-area {
-        width: 100%;
-        margin-top: 40px;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 15px;
-        border-top: 2px dashed #eee;
-        padding-top: 20px;
-        position: relative; 
-    }
-
-    .controls-row {
-        display: flex;
-        justify-content: center;
-        gap: 15px;
-        flex-wrap: wrap;
-        width: 100%;
-    }
-
-    .controls-row button {
-        padding: 10px 15px; font-size: 15px; font-weight: bold; border: none; border-radius: 5px; cursor: pointer; color: white; box-shadow: 0 2px 4px rgba(0,0,0,0.2); transition: 0.2s;
-    }
+    .bottom-area { width: 100%; margin-top: 40px; display: flex; flex-direction: column; align-items: center; gap: 15px; border-top: 2px dashed #eee; padding-top: 20px; position: relative; }
+    .controls-row { display: flex; justify-content: center; gap: 15px; flex-wrap: wrap; width: 100%; }
+    .controls-row button { padding: 10px 15px; font-size: 15px; font-weight: bold; border: none; border-radius: 5px; cursor: pointer; color: white; box-shadow: 0 2px 4px rgba(0,0,0,0.2); transition: 0.2s; }
     .controls-row button:hover { opacity: 0.8; transform: translateY(-1px); }
-    .btn-load { background-color: #2196F3; }
-    .btn-save { background-color: #4CAF50; }
-    .btn-reset { background-color: #f44336; }
-    .btn-random { background-color: #673ab7; }
-    .btn-rotate { background-color: #009688; }
-    .btn-export { background-color: #795548; }
-    .btn-mirror { background-color: #607d8b; }
     
-    .btn-import-label {
-        display: inline-block; padding: 10px 15px; font-size: 15px; font-weight: bold; border-radius: 5px; cursor: pointer; color: white; background-color: #607d8b; box-shadow: 0 2px 4px rgba(0,0,0,0.2); transition: 0.2s;
-    }
+    .btn-load { background-color: #2196F3; } .btn-save { background-color: #4CAF50; } .btn-reset { background-color: #f44336; }
+    .btn-random { background-color: #673ab7; } .btn-rotate { background-color: #009688; } .btn-export { background-color: #795548; } .btn-mirror { background-color: #607d8b; }
+    
+    .btn-import-label { display: inline-block; padding: 10px 15px; font-size: 15px; font-weight: bold; border-radius: 5px; cursor: pointer; color: white; background-color: #607d8b; box-shadow: 0 2px 4px rgba(0,0,0,0.2); transition: 0.2s; }
     .btn-import-label:hover { opacity: 0.8; transform: translateY(-1px); }
-
     .save-group { display: flex; align-items: center; background-color: #e8f5e9; padding: 5px; border-radius: 6px; border: 1px solid #c8e6c9; }
     .save-group select { padding: 8px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; margin-right: 10px; outline: none; }
 
-    /* 云同步专属区域 */
-    .github-sync-area {
-        width: 100%;
-        max-width: 800px;
-        background-color: #24292e;
-        color: #fff;
-        padding: 15px;
-        border-radius: 8px;
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-        align-items: center;
-        margin-top: 10px;
-    }
-    .github-sync-row {
-        display: flex;
-        gap: 10px;
-        align-items: center;
-        width: 100%;
-        justify-content: center;
-        flex-wrap: wrap;
-    }
-    .github-sync-area input[type="password"] {
-        padding: 8px;
-        border-radius: 4px;
-        border: 1px solid #555;
-        background: #333;
-        color: white;
-        width: 300px;
-        max-width: 90%;
-    }
-    .btn-github-save { background-color: #2ea043; }
-    .btn-github-load { background-color: #0366d6; }
+    .github-sync-area { width: 100%; max-width: 800px; background-color: #24292e; color: #fff; padding: 15px; border-radius: 8px; display: flex; flex-direction: column; gap: 10px; align-items: center; margin-top: 10px; }
+    .github-sync-row { display: flex; gap: 10px; align-items: center; width: 100%; justify-content: center; flex-wrap: wrap; }
+    .github-sync-area input[type="password"] { padding: 8px; border-radius: 4px; border: 1px solid #555; background: #333; color: white; width: 300px; max-width: 90%; }
+    .btn-github-save { background-color: #2ea043; } .btn-github-load { background-color: #0366d6; }
 
-    /* 右下角添加新框工具 */
-    .rect-tool {
-        position: absolute;
-        right: 0;
-        top: 20px;
-        padding: 10px 20px;
-        background: #9c27b0;
-        color: #fff;
-        font-weight: bold;
-        border-radius: 6px;
-        cursor: grab;
-        border: 2px dashed #e1bee7;
-        user-select: none;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-        transition: transform 0.1s;
-        touch-action: none; /* 防手机默认滑动 */
-    }
+    .rect-tool { position: absolute; right: 0; top: 20px; padding: 10px 20px; background: #9c27b0; color: #fff; font-weight: bold; border-radius: 6px; cursor: grab; border: 2px dashed #e1bee7; user-select: none; box-shadow: 0 2px 4px rgba(0,0,0,0.2); transition: transform 0.1s; touch-action: none; }
     .rect-tool:active { cursor: grabbing; transform: scale(0.95); }
 
-    /* 拖拽学生卡片样式 */
-    .student { 
-        width: 60px; height: 34px; display: flex; align-items: center; justify-content: center; border-radius: 4px; cursor: grab; font-weight: bold; font-size: 14px; user-select: none; box-shadow: 0 2px 4px rgba(0,0,0,0.2); transition: transform 0.1s; z-index: 2;
-        touch-action: none; /* 防手机默认滑动 */
-    }
+    .student { width: 60px; height: 34px; display: flex; align-items: center; justify-content: center; border-radius: 4px; cursor: grab; font-weight: bold; font-size: 14px; user-select: none; box-shadow: 0 2px 4px rgba(0,0,0,0.2); transition: transform 0.1s; z-index: 2; }
     .student.boy { background-color: #64b5f6; color: white; border: 1px solid #1e88e5; }
     .student.girl { background-color: #f06292; color: white; border: 1px solid #d81b60; }
     .student:active { cursor: grabbing; }
     .dragging { opacity: 0.6; transform: scale(0.95); }
 
-    /* 自定义组框样式 */
     .custom-box { position: absolute; border: 4px dashed; pointer-events: none; z-index: 5; border-radius: 8px; transition: border-color 0.2s, background-color 0.2s; }
     .custom-box .handle { position: absolute; background: #fff; border: 2px solid; border-radius: 50%; pointer-events: auto; z-index: 10; touch-action: none; }
     .custom-box .handle.top { top: -8px; left: 50%; width: 12px; height: 12px; transform: translateX(-50%); cursor: ns-resize; }
     .custom-box .handle.bottom { bottom: -8px; left: 50%; width: 12px; height: 12px; transform: translateX(-50%); cursor: ns-resize; }
     .custom-box .handle.left { top: 50%; left: -8px; width: 12px; height: 12px; transform: translateY(-50%); cursor: ew-resize; }
     .custom-box .handle.right { top: 50%; right: -8px; width: 12px; height: 12px; transform: translateY(-50%); cursor: ew-resize; }
-    
     .custom-box .close-btn { position: absolute; top: -12px; right: -12px; width: 22px; height: 22px; background: #ff5252; color: white; border-radius: 50%; text-align: center; line-height: 20px; cursor: pointer; pointer-events: auto; font-size: 14px; font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.3); z-index: 10; }
     .custom-box .close-btn:hover { background: #d50000; }
-
-    /* 框体的整体移动按钮 */
-    .custom-box .move-btn {
-        position: absolute; top: -12px; left: -12px; width: 22px; height: 22px; background: #2196F3; color: white; border-radius: 50%; text-align: center; line-height: 20px; cursor: move; pointer-events: auto; font-size: 14px; box-shadow: 0 2px 4px rgba(0,0,0,0.3); z-index: 10;
-        touch-action: none;
-    }
+    .custom-box .move-btn { position: absolute; top: -12px; left: -12px; width: 22px; height: 22px; background: #2196F3; color: white; border-radius: 50%; text-align: center; line-height: 20px; cursor: move; pointer-events: auto; font-size: 14px; box-shadow: 0 2px 4px rgba(0,0,0,0.3); z-index: 10; touch-action: none; }
     .custom-box .move-btn:hover { background: #1976D2; }
+
+    /* =========================================
+       新增：为手机端专门优化的【悬浮锁定】排版
+       ========================================= */
+    @media (max-width: 800px) {
+        .main-container { 
+            display: flex; 
+            flex-direction: column; 
+        }
+        /* 利用 display: contents 魔法，打破原有层级，重新在手机上排序 */
+        .left-panel { display: contents; }
+        
+        .setup-box { order: 1; width: 100%; box-sizing: border-box; }
+        
+        /* 核心：让右侧教室区固定在屏幕上端 */
+        .right-panel { 
+            order: 2; 
+            width: 100%; 
+            box-sizing: border-box; 
+            position: sticky; 
+            top: 0; 
+            z-index: 1000; 
+            max-height: 55vh; /* 最多占据屏幕一半多一点，留出下半部分滑名单 */
+            overflow-y: auto; 
+            background: #fff; 
+            border-bottom: 4px solid #ff9800; /* 给个明显底边，区分滑动区域 */
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2); 
+            margin-bottom: 15px;
+            padding: 10px;
+        }
+        
+        .list-box { order: 3; width: 100%; box-sizing: border-box; }
+        .bottom-area { margin-top: 20px; }
+        .rect-tool { position: relative; right: auto; top: auto; margin-top: 15px; display: inline-block; }
+    }
 
 </style>
 </head>
@@ -453,8 +227,8 @@
     <div class="right-panel">
         <div class="instruction-tip">
             💡 <b>操作提示</b>：
-            ① 左上角 <b>✥</b> 可拖动整个框，白点可拉伸。
-            ② 在座位上 <b>右键单击(长按)</b> 可将其隐藏作废；在半透明废弃位置上 <b>双击(连按)</b> 即可恢复。
+            ① 在座位上 <b>右键单击(长按)</b> 隐藏作废；在废弃位置上 <b>双击(连按)</b> 恢复。
+            ② 手机端 <b>长按姓名 0.15 秒</b> 即可将其拖拽入座。
         </div>
         
         <div id="classroom-wrapper">
@@ -507,18 +281,7 @@
 </div>
 
 <script>
-    // === 手机端拖拽兼容（增加保护，防止无网络时阻塞整个脚本） ===
-    try {
-        if (typeof MobileDragDrop !== 'undefined') {
-            MobileDragDrop.polyfill({
-                holdToDrag: 100 // 长按100毫秒触发，防误触
-            });
-        }
-    } catch(err) {
-        console.warn('手机拖拽辅助库未加载。');
-    }
-
-    // === 变量声明（严格避免重复声明） ===
+    // === 变量声明 ===
     let studentsData = [];
     let isMirrored = false; 
     let customBoxes = [];
@@ -539,7 +302,7 @@
     const poolBoys = document.getElementById('pool-boys');
     const poolGirls = document.getElementById('pool-girls');
 
-    // === GitHub 同步参数配置 ===
+    // === 云端同步配置 ===
     const GITHUB_OWNER = 'Dzreal'; 
     const GITHUB_REPO = 'Classseat-Data'; 
     const GITHUB_FILE_PATH = 'seat_data.json'; 
@@ -560,9 +323,7 @@
 
     function encodeUTF8ToBase64(str) {
         return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g,
-            function toSolidBytes(match, p1) {
-                return String.fromCharCode('0x' + p1);
-        }));
+            function toSolidBytes(match, p1) { return String.fromCharCode('0x' + p1); }));
     }
 
     function decodeBase64ToUTF8(str) {
@@ -577,10 +338,7 @@
             let response = await fetch(url, {
                 headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json' }
             });
-            if (response.ok) {
-                let data = await response.json();
-                return data.sha;
-            }
+            if (response.ok) { let data = await response.json(); return data.sha; }
             return null;
         } catch (e) { return null; }
     }
@@ -590,7 +348,6 @@
         if (!token) { alert('⚠️ 请先输入 Token！'); return; }
 
         saveTokenLocally();
-
         if (studentsData.length === 0) { alert('当前没有数据可保存！'); return; }
 
         let exportData = {
@@ -604,11 +361,9 @@
             },
             deletedSeatIds: Array.from(document.querySelectorAll('.seat.deleted')).map(s => s.id),
             layout: {},
-            boxesData: customBoxes.map(b => ({
-                seats: b.attachedSeats.map(s => s.id),
-                color: b.el.style.borderColor
-            }))
+            boxesData: customBoxes.map(b => ({ seats: b.attachedSeats.map(s => s.id), color: b.el.style.borderColor }))
         };
+        
         document.querySelectorAll('.seat').forEach(seat => {
             if (seat.children.length > 0) exportData.layout[seat.id] = seat.children[0].id;
         });
@@ -621,19 +376,12 @@
             let sha = await getGitHubFileSha(token);
             
             let url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${GITHUB_FILE_PATH}`;
-            let bodyData = {
-                message: "Cloud save seat data to Private Repo",
-                content: base64Content
-            };
+            let bodyData = { message: "Cloud save seat data", content: base64Content };
             if (sha) bodyData.sha = sha; 
 
             let response = await fetch(url, {
                 method: 'PUT',
-                headers: {
-                    'Authorization': `token ${token}`,
-                    'Accept': 'application/vnd.github.v3+json',
-                    'Content-Type': 'application/json'
-                },
+                headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
                 body: JSON.stringify(bodyData)
             });
 
@@ -641,10 +389,10 @@
                 alert('✅ 成功保存至云端私有仓库！');
             } else {
                 let errData = await response.json();
-                alert('❌ 保存失败：' + (errData.message || '请确保Token填写正确，且拥有写入私有仓库的权限。'));
+                alert('❌ 保存失败：' + (errData.message || '请确保Token拥有写入私有仓库的权限。'));
             }
         } catch (e) {
-            alert('网络错误：无法连接到云端。如果你在国内，通常是因为网络拦截了接口 (api.github.com)，建议开启加速器后重试。\n详细报错：' + e.message);
+            alert('网络错误：无法连接到云端。如果是国内网络环境，可能被拦截了，请尝试开启加速器。\n详细报错：' + e.message);
         } finally {
             document.querySelector('.btn-github-save').innerText = '☁️ 一键保存至云端';
         }
@@ -670,10 +418,10 @@
                 applyImportedData(importedData); 
                 alert('✅ 已从云端读取并完美还原排座！');
             } else {
-                alert('❌ 读取失败，可能是云端还没有保存过数据，或者私有仓库名字没有对应上。');
+                alert('❌ 读取失败，云端可能还没保存过数据，或者仓库名字不对。');
             }
         } catch (e) {
-            alert('网络错误：无法连接到云端。如果你在国内，通常是因为网络拦截了接口 (api.github.com)，建议开启加速器后重试。\n详细报错：' + e.message);
+            alert('网络错误：无法连接到云端。如果是国内网络环境，可能被拦截了，请尝试开启加速器。\n详细报错：' + e.message);
         } finally {
             document.querySelector('.btn-github-load').innerText = '☁️ 从云端读取';
         }
@@ -684,7 +432,6 @@
             studentsData = importedData.studentsData;
             renderStudents();
         }
-
         if(importedData.config) {
             document.getElementById('set-cols').value = importedData.config.cols;
             document.getElementById('set-rows').value = importedData.config.rows;
@@ -695,14 +442,12 @@
             generateLayout();
             if (isMirrored !== targetMirror) toggleMirror();
         }
-
         if(importedData.deletedSeatIds) {
             document.querySelectorAll('.seat').forEach(s => {
                 if (importedData.deletedSeatIds.includes(s.id)) s.classList.add('deleted');
                 else s.classList.remove('deleted');
             });
         }
-
         if(importedData.layout) {
             for (let seatId in importedData.layout) {
                 let stuId = importedData.layout[seatId];
@@ -754,10 +499,7 @@
                     if(nameCol !== -1 && genderCol !== -1) { headerRowIndex = i; break; }
                 }
 
-                if(nameCol === -1 || genderCol === -1) {
-                    alert("导入失败：在表格前10行中没有找到同时包含“姓名”和“性别”的列头！");
-                    return;
-                }
+                if(nameCol === -1 || genderCol === -1) { alert("导入失败：没找到姓名和性别列！"); return; }
 
                 let newStudentsData = [];
                 for(let i = headerRowIndex + 1; i < jsonData.length; i++) {
@@ -772,13 +514,10 @@
                 }
 
                 if (newStudentsData.length === 0) { alert("未能提取到有效的学生名单！"); return; }
-
                 studentsData = newStudentsData;
                 alert(`✅ 导入成功：共读取到 ${studentsData.length} 名学生！`);
                 renderStudents(); 
-            } catch (err) {
-                alert("读取文件发生错误，请上传正确的 Excel/CSV 文件！");
-            }
+            } catch (err) { alert("读取文件发生错误，请上传正确的 Excel/CSV 文件！"); }
         };
         reader.readAsArrayBuffer(file);
     });
@@ -820,7 +559,6 @@
 
     function toggleMirror() {
         isMirrored = !isMirrored;
-        
         let btn = document.getElementById('btn-mirror');
         if (isMirrored) {
             btn.innerHTML = '✅ 退出镜像 (恢复原状)';
@@ -834,12 +572,10 @@
         let board = document.querySelector('.blackboard');
         if (isMirrored) {
             wrapper.appendChild(board);
-            board.style.marginBottom = '0px';
-            board.style.marginTop = '20px';
+            board.style.marginBottom = '0px'; board.style.marginTop = '20px';
         } else {
             wrapper.prepend(board);
-            board.style.marginTop = '0px';
-            board.style.marginBottom = '20px';
+            board.style.marginTop = '0px'; board.style.marginBottom = '20px';
         }
 
         let groups = Array.from(classroom.querySelectorAll('.group'));
@@ -848,7 +584,6 @@
         groups.forEach(g => {
             let subs = Array.from(g.querySelectorAll('.subgroup'));
             subs.reverse().forEach((sub, idx) => g.insertBefore(sub, g.children[idx]));
-
             subs.forEach(sub => {
                 let seats = Array.from(sub.querySelectorAll('.seat'));
                 seats.reverse().forEach((seat, idx) => sub.insertBefore(seat, sub.children[idx]));
@@ -857,22 +592,12 @@
 
         let door = document.querySelector('.door');
         if (door) {
-            if (door.classList.contains('left')) {
-                door.classList.remove('left');
-                door.classList.add('right');
-            } else if (door.classList.contains('right')) {
-                door.classList.remove('right');
-                door.classList.add('left');
-            }
-            if (isMirrored) {
-                door.style.top = 'auto';
-                door.style.bottom = '0';
-            } else {
-                door.style.bottom = 'auto';
-                door.style.top = '0';
-            }
+            if (door.classList.contains('left')) { door.classList.remove('left'); door.classList.add('right'); } 
+            else if (door.classList.contains('right')) { door.classList.remove('right'); door.classList.add('left'); }
+            
+            if (isMirrored) { door.style.top = 'auto'; door.style.bottom = '0'; } 
+            else { door.style.bottom = 'auto'; door.style.top = '0'; }
         }
-
         customBoxes.forEach(b => b.updateLayout());
     }
 
@@ -894,17 +619,9 @@
         let groupSizes = [];
         let remaining = cols;
         if (doorPos === 'left') {
-            while (remaining > 0) {
-                let s = Math.min(colsPerGroup, remaining);
-                groupSizes.push(s);
-                remaining -= s;
-            }
+            while (remaining > 0) { let s = Math.min(colsPerGroup, remaining); groupSizes.push(s); remaining -= s; }
         } else {
-            while (remaining > 0) {
-                let s = Math.min(colsPerGroup, remaining);
-                groupSizes.unshift(s); 
-                remaining -= s;
-            }
+            while (remaining > 0) { let s = Math.min(colsPerGroup, remaining); groupSizes.unshift(s); remaining -= s; }
         }
 
         let seatCounter = 0;
@@ -913,10 +630,7 @@
 
         let startColOffsets = [];
         let currCol = 0;
-        for(let g=0; g<groupCount; g++) {
-            startColOffsets.push(currCol);
-            currCol += groupSizes[g];
-        }
+        for(let g=0; g<groupCount; g++) { startColOffsets.push(currCol); currCol += groupSizes[g]; }
 
         for (let g = 0; g < groupCount; g++) {
             let width = groupSizes[g];
@@ -937,10 +651,8 @@
                     seatDiv.className = 'seat';
                     seatDiv.id = 'seat-' + seatCounter++;
                     
-                    let s_row = sub * 2 + Math.floor(s / width);
-                    let s_col = colOffset + (s % width);
-                    seatDiv.dataset.row = s_row;
-                    seatDiv.dataset.col = s_col;
+                    seatDiv.dataset.row = sub * 2 + Math.floor(s / width);
+                    seatDiv.dataset.col = colOffset + (s % width);
 
                     seatDiv.oncontextmenu = function(e) {
                         e.preventDefault();
@@ -954,9 +666,7 @@
                     };
 
                     seatDiv.ondblclick = function(e) {
-                        if (this.classList.contains('deleted')) {
-                            this.classList.remove('deleted');
-                        }
+                        if (this.classList.contains('deleted')) { this.classList.remove('deleted'); }
                     };
 
                     seatDiv.ondrop = drop;
@@ -976,7 +686,7 @@
         classroom.offsetHeight; 
         
         let allSubgroups = Array.from(document.querySelectorAll('.subgroup'));
-        allSubgroups.forEach((sub, subIndexOverall) => {
+        allSubgroups.forEach((sub) => {
             let parentGrp = sub.parentElement;
             let domGroups = Array.from(document.querySelectorAll('.group'));
             let g = domGroups.indexOf(parentGrp);
@@ -987,9 +697,7 @@
             let color = subgroupColors[colorIndex];
 
             let seats = Array.from(sub.querySelectorAll('.seat'));
-            if(seats.length > 0) {
-                createCustomBox(seats, color); 
-            }
+            if(seats.length > 0) { createCustomBox(seats, color);  }
         });
 
         if (wasMirrored) toggleMirror();
@@ -1024,12 +732,8 @@
             let targetPool = isEven ? boys : girls;
             let backupPool = isEven ? girls : boys; 
 
-            let stu = targetPool.pop();
-            if (!stu) stu = backupPool.pop(); 
-
-            if (stu) {
-                seat.appendChild(stu);
-            }
+            let stu = targetPool.pop() || backupPool.pop(); 
+            if (stu) { seat.appendChild(stu); }
         });
 
         if (wasMirrored) toggleMirror(); 
@@ -1041,7 +745,6 @@
 
         let doorPos = document.getElementById('set-door').value;
         let domGroups = Array.from(document.querySelectorAll('.group'));
-        
         if (doorPos === 'right') domGroups.reverse();
 
         let orderedSubgroups = [];
@@ -1056,10 +759,7 @@
             allSeats.push(...Array.from(sub.querySelectorAll('.seat:not(.deleted)')));
         });
 
-        if (allSeats.length === 0) {
-            if (wasMirrored) toggleMirror();
-            return;
-        }
+        if (allSeats.length === 0) { if (wasMirrored) toggleMirror(); return; }
 
         let studentsInSeats = allSeats.map(s => s.children.length > 0 ? s.children[0] : null);
 
@@ -1070,10 +770,7 @@
 
         let length = studentsInSeats.length;
         shiftStep = shiftStep % length;
-        let shiftedStudents = [
-            ...studentsInSeats.slice(length - shiftStep),
-            ...studentsInSeats.slice(0, length - shiftStep)
-        ];
+        let shiftedStudents = [ ...studentsInSeats.slice(length - shiftStep), ...studentsInSeats.slice(0, length - shiftStep) ];
 
         allSeats.forEach(s => {
             if (s.children.length > 0) {
@@ -1085,73 +782,49 @@
 
         allSeats.forEach((s, i) => {
             let stu = shiftedStudents[i];
-            if (stu !== null) {
-                s.appendChild(stu);
-            }
+            if (stu !== null) { s.appendChild(stu); }
         });
         
-        sortPool(poolBoys);
-        sortPool(poolGirls);
-
+        sortPool(poolBoys); sortPool(poolGirls);
         if (wasMirrored) toggleMirror(); 
     }
 
-    function dragStart(e) {
-        draggedElement = e.target;
-        setTimeout(() => { if (e.target.classList.contains('student')) e.target.classList.add('dragging'); }, 0);
-        e.dataTransfer.effectAllowed = 'move';
-    }
+    // ==========================================
+    //  通用核心：处理放下元素逻辑 (双端共用)
+    // ==========================================
+    function processDrop(target, draggedEl) {
+        if (!draggedEl) return;
 
-    function dragEnd(e) {
-        if (e.target.classList.contains('student')) e.target.classList.remove('dragging');
-        draggedElement = null;
-    }
-
-    function allowDrop(e) {
-        let targetSeat = e.target.closest('.seat');
-        if (targetSeat && targetSeat.classList.contains('deleted')) return; 
-
-        if (draggedElement && draggedElement.classList.contains('student')) {
-            let targetPool = e.target.closest('.pool-col');
-            if (targetPool) {
-                let isBoy = draggedElement.classList.contains('boy');
-                let isGirl = draggedElement.classList.contains('girl');
-                if ((targetPool.id === 'pool-boys' && isGirl) || (targetPool.id === 'pool-girls' && isBoy)) return;
-            }
-        }
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-    }
-
-    function drop(e) {
-        e.preventDefault();
-        if (!draggedElement) return;
-
-        if (draggedElement.id === 'rect-tool') {
-            let targetSeat = e.target.closest('.seat:not(.deleted)');
+        if (draggedEl.id === 'rect-tool') {
+            let targetSeat = target.closest('.seat:not(.deleted)');
             if (targetSeat) createCustomBox([targetSeat]);
             return; 
         }
         
-        let target = e.target;
         while (target && !target.classList.contains('seat') && !target.classList.contains('pool-col') && !target.classList.contains('student')) {
             target = target.parentNode;
             if (target === document.body) return; 
         }
         if (!target) return;
-
         if (target.classList.contains('seat') && target.classList.contains('deleted')) return;
 
-        if (target.classList.contains('student') && target !== draggedElement) {
+        if (target.classList.contains('pool-col') || target.closest('.pool-col')) {
+            let pool = target.classList.contains('pool-col') ? target : target.closest('.pool-col');
+            let isBoy = draggedEl.classList.contains('boy');
+            let isGirl = draggedEl.classList.contains('girl');
+            if ((pool.id === 'pool-boys' && isGirl) || (pool.id === 'pool-girls' && isBoy)) return;
+        }
+
+        if (target.classList.contains('student') && target !== draggedEl) {
             let targetParent = target.parentNode;
-            let sourceParent = draggedElement.parentNode;
-            targetParent.appendChild(draggedElement);
+            let sourceParent = draggedEl.parentNode;
+            targetParent.appendChild(draggedEl);
             sourceParent.appendChild(target);
         } else if (target.classList.contains('seat') || target.classList.contains('pool-col')) {
             if (target.classList.contains('seat') && target.children.length > 0) {
                 let existingStudent = target.children[0];
-                let sourceParent = draggedElement.parentNode;
-                target.appendChild(draggedElement);
+                let sourceParent = draggedEl.parentNode;
+                target.appendChild(draggedEl);
                 if (sourceParent.classList.contains('pool-col')) {
                     let exIsBoy = existingStudent.classList.contains('boy');
                     let correctPool = exIsBoy ? poolBoys : poolGirls;
@@ -1161,12 +834,119 @@
                     sourceParent.appendChild(existingStudent);
                 }
             } else {
-                target.appendChild(draggedElement);
+                target.appendChild(draggedEl);
                 if (target.classList.contains('pool-col')) sortPool(target);
             }
         }
     }
 
+    // 电脑端 Mouse 原生拖拽事件
+    function dragStart(e) {
+        draggedElement = e.target;
+        setTimeout(() => { if (e.target.classList.contains('student')) e.target.classList.add('dragging'); }, 0);
+        e.dataTransfer.effectAllowed = 'move';
+    }
+    function dragEnd(e) {
+        if (e.target.classList.contains('student')) e.target.classList.remove('dragging');
+        draggedElement = null;
+    }
+    function allowDrop(e) {
+        let targetSeat = e.target.closest('.seat');
+        if (targetSeat && targetSeat.classList.contains('deleted')) return; 
+        e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+    }
+    function drop(e) {
+        e.preventDefault();
+        processDrop(e.target, draggedElement);
+    }
+
+    // ==========================================
+    //  手机端 Touch 原生长按拖拽引擎 (完美无冲方案)
+    // ==========================================
+    let touchDragTarget = null;
+    let touchStartX = 0, touchStartY = 0;
+    let ghostEl = null;
+    let touchTimer = null;
+    let isTouchDragging = false;
+
+    document.addEventListener('touchstart', function(e) {
+        // 只拦截学生和生成框工具
+        let target = e.target.closest('.student') || e.target.closest('#rect-tool');
+        if (target) {
+            touchStartX = e.touches[0].clientX;
+            touchStartY = e.touches[0].clientY;
+            touchDragTarget = target;
+            draggedElement = target; 
+
+            // 长按 150ms 才判定为拖拽，防止干扰正常上下滑动
+            touchTimer = setTimeout(() => {
+                isTouchDragging = true;
+                target.style.opacity = '0.3'; // 原位置变半透明
+                
+                // 制造一个视觉替身跟随手指
+                let rect = target.getBoundingClientRect();
+                ghostEl = target.cloneNode(true);
+                ghostEl.style.position = 'fixed';
+                ghostEl.style.left = rect.left + 'px';
+                ghostEl.style.top = rect.top + 'px';
+                ghostEl.style.width = rect.width + 'px';
+                ghostEl.style.height = rect.height + 'px';
+                ghostEl.style.opacity = '0.9';
+                ghostEl.style.zIndex = '99999';
+                ghostEl.style.pointerEvents = 'none'; // 极其重要：让射线穿透它检测底部目标
+                ghostEl.style.boxShadow = '0 10px 20px rgba(0,0,0,0.4)';
+                ghostEl.style.transform = 'scale(1.1)';
+                document.body.appendChild(ghostEl);
+                
+                // 手机震动反馈（仅支持的设备）
+                if (navigator.vibrate) navigator.vibrate(50);
+            }, 150);
+        }
+    }, {passive: false});
+
+    document.addEventListener('touchmove', function(e) {
+        if (touchDragTarget) {
+            let currentX = e.touches[0].clientX;
+            let currentY = e.touches[0].clientY;
+            
+            if (!isTouchDragging) {
+                // 如果在长按时间前手指就滑动了，说明意图是滚动页面，取消拖拽
+                if (Math.abs(currentX - touchStartX) > 10 || Math.abs(currentY - touchStartY) > 10) {
+                    clearTimeout(touchTimer);
+                    touchDragTarget = null;
+                    draggedElement = null;
+                }
+            } else {
+                // 已经进入拖拽状态，禁止页面随手指滚动
+                e.preventDefault(); 
+                if (ghostEl) {
+                    let dx = currentX - touchStartX;
+                    let dy = currentY - touchStartY;
+                    ghostEl.style.transform = `translate(${dx}px, ${dy}px) scale(1.1)`;
+                }
+            }
+        }
+    }, {passive: false});
+
+    document.addEventListener('touchend', function(e) {
+        clearTimeout(touchTimer);
+        if (isTouchDragging && touchDragTarget) {
+            touchDragTarget.style.opacity = '1'; // 恢复原状
+            if (ghostEl) { ghostEl.remove(); ghostEl = null; }
+            
+            // 获取手指松开瞬间最底下的元素
+            let touch = e.changedTouches[0];
+            let dropTargetElement = document.elementFromPoint(touch.clientX, touch.clientY);
+            
+            processDrop(dropTargetElement, touchDragTarget);
+        }
+        
+        touchDragTarget = null;
+        draggedElement = null;
+        isTouchDragging = false;
+    });
+
+    // === 组框生成与控制 ===
     function createCustomBox(seatsArray, specificColor = null) {
         let boxContainer = document.createElement('div');
         boxContainer.className = 'custom-box';
@@ -1182,7 +962,6 @@
         let moveBtn = document.createElement('div');
         moveBtn.className = 'move-btn';
         moveBtn.innerText = '✥';
-        // 绑定双端移动事件
         moveBtn.onmousedown = function(e) { startMoveBox(e, boxObj); };
         moveBtn.ontouchstart = function(e) { startMoveBox(e, boxObj); };
         boxContainer.appendChild(moveBtn);
@@ -1200,7 +979,6 @@
             let handle = document.createElement('div');
             handle.className = 'handle ' + pos;
             handle.style.borderColor = color;
-            // 绑定双端拉伸事件
             handle.onmousedown = function(e) { startResize(e, boxObj, pos); };
             handle.ontouchstart = function(e) { startResize(e, boxObj, pos); };
             boxContainer.appendChild(handle);
@@ -1240,7 +1018,6 @@
 
     window.addEventListener('resize', () => customBoxes.forEach(b => b.updateLayout()));
 
-    // === 兼容双端操作的统一追踪逻辑 ===
     function startResize(e, box, pos) {
         e.preventDefault(); e.stopPropagation();
         activeBox = box; activeHandle = pos;
@@ -1248,10 +1025,8 @@
         startY = e.touches ? e.touches[0].clientY : e.clientY;
         startRect = box.el.getBoundingClientRect();
         
-        document.addEventListener('mousemove', onBoxMouseMove);
-        document.addEventListener('mouseup', onBoxMouseUp);
-        document.addEventListener('touchmove', onBoxMouseMove, { passive: false });
-        document.addEventListener('touchend', onBoxMouseUp);
+        document.addEventListener('mousemove', onBoxMouseMove); document.addEventListener('mouseup', onBoxMouseUp);
+        document.addEventListener('touchmove', onBoxMouseMove, { passive: false }); document.addEventListener('touchend', onBoxMouseUp);
     }
 
     function onBoxMouseMove(e) {
@@ -1282,10 +1057,8 @@
         moveStartY = e.touches ? e.touches[0].clientY : e.clientY;
         moveStartRect = box.el.getBoundingClientRect();
         
-        document.addEventListener('mousemove', onMoveBoxMove);
-        document.addEventListener('mouseup', onMoveBoxUp);
-        document.addEventListener('touchmove', onMoveBoxMove, { passive: false });
-        document.addEventListener('touchend', onMoveBoxUp);
+        document.addEventListener('mousemove', onMoveBoxMove); document.addEventListener('mouseup', onMoveBoxUp);
+        document.addEventListener('touchmove', onMoveBoxMove, { passive: false }); document.addEventListener('touchend', onMoveBoxUp);
     }
 
     function onMoveBoxMove(e) {
@@ -1298,33 +1071,20 @@
         let deltaY = clientY - moveStartY;
         let classroomRect = classroom.getBoundingClientRect();
 
-        let newTop = moveStartRect.top + deltaY;
-        let newLeft = moveStartRect.left + deltaX;
-
-        moveActiveBox.el.style.top = (newTop - classroomRect.top) + 'px';
-        moveActiveBox.el.style.left = (newLeft - classroomRect.left) + 'px';
+        moveActiveBox.el.style.top = (moveStartRect.top + deltaY - classroomRect.top) + 'px';
+        moveActiveBox.el.style.left = (moveStartRect.left + deltaX - classroomRect.left) + 'px';
     }
 
     function onBoxMouseUp(e) {
-        document.removeEventListener('mousemove', onBoxMouseMove);
-        document.removeEventListener('mouseup', onBoxMouseUp);
-        document.removeEventListener('touchmove', onBoxMouseMove);
-        document.removeEventListener('touchend', onBoxMouseUp);
-        if (activeBox) {
-            recalculateBoxSeats(activeBox);
-            activeBox = null; activeHandle = null;
-        }
+        document.removeEventListener('mousemove', onBoxMouseMove); document.removeEventListener('mouseup', onBoxMouseUp);
+        document.removeEventListener('touchmove', onBoxMouseMove); document.removeEventListener('touchend', onBoxMouseUp);
+        if (activeBox) { recalculateBoxSeats(activeBox); activeBox = null; activeHandle = null; }
     }
     
     function onMoveBoxUp(e) {
-        document.removeEventListener('mousemove', onMoveBoxMove);
-        document.removeEventListener('mouseup', onMoveBoxUp);
-        document.removeEventListener('touchmove', onMoveBoxMove);
-        document.removeEventListener('touchend', onMoveBoxUp);
-        if (moveActiveBox) {
-            recalculateBoxSeats(moveActiveBox);
-            moveActiveBox = null;
-        }
+        document.removeEventListener('mousemove', onMoveBoxMove); document.removeEventListener('mouseup', onMoveBoxUp);
+        document.removeEventListener('touchmove', onMoveBoxMove); document.removeEventListener('touchend', onMoveBoxUp);
+        if (moveActiveBox) { recalculateBoxSeats(moveActiveBox); moveActiveBox = null; }
     }
 
     function recalculateBoxSeats(boxTarget) {
@@ -1340,23 +1100,17 @@
             }
         });
         
-        if (newlyAttached.length > 0) {
-            boxTarget.attachedSeats = newlyAttached;
-        }
+        if (newlyAttached.length > 0) boxTarget.attachedSeats = newlyAttached;
         boxTarget.updateLayout(); 
     }
 
     function saveRecord() {
         let slot = document.getElementById('save-slot').value;
-        
         localStorage.setItem('seat_students_' + slot, JSON.stringify(studentsData));
 
         let config = {
-            cols: document.getElementById('set-cols').value,
-            rows: document.getElementById('set-rows').value,
-            colsPerGroup: document.getElementById('set-colsPerGroup').value,
-            doorPos: document.getElementById('set-door').value,
-            isMirrored: isMirrored  
+            cols: document.getElementById('set-cols').value, rows: document.getElementById('set-rows').value,
+            colsPerGroup: document.getElementById('set-colsPerGroup').value, doorPos: document.getElementById('set-door').value, isMirrored: isMirrored  
         };
         localStorage.setItem('seat_config_' + slot, JSON.stringify(config));
 
@@ -1369,18 +1123,14 @@
         });
         localStorage.setItem('seat_history_' + slot, JSON.stringify(layout));
 
-        let boxesData = customBoxes.map(b => ({
-            seats: b.attachedSeats.map(s => s.id),
-            color: b.el.style.borderColor
-        }));
+        let boxesData = customBoxes.map(b => ({ seats: b.attachedSeats.map(s => s.id), color: b.el.style.borderColor }));
         localStorage.setItem('seat_history_boxes_' + slot, JSON.stringify(boxesData));
-
-        alert('✅ 保存成功：数据已保存至浏览器的【历史记录 ' + slot + '】中。');
+        alert('✅ 保存成功：数据已保存至浏览器的本地记录 ' + slot + ' 中。');
     }
 
     function loadRecord(slot) {
         let layoutData = localStorage.getItem('seat_history_' + slot);
-        if (!layoutData) { alert('❌ 本地历史记录 ' + slot + ' 为空，请先排列并保存！'); return; }
+        if (!layoutData) { alert('❌ 本地历史记录为空，请先排列并保存！'); return; }
 
         let savedStudents = localStorage.getItem('seat_students_' + slot);
         let importedData = {
@@ -1392,84 +1142,47 @@
         };
         
         if(!importedData.config) resetAll();
-        
         applyImportedData(importedData);
     }
 
     function exportToFile() {
-        if (studentsData.length === 0) { alert('当前没有学生数据，无法导出！'); return; }
-
-        let config = {
-            cols: document.getElementById('set-cols').value,
-            rows: document.getElementById('set-rows').value,
-            colsPerGroup: document.getElementById('set-colsPerGroup').value,
-            doorPos: document.getElementById('set-door').value,
-            isMirrored: isMirrored
-        };
-
-        let deletedSeatIds = Array.from(document.querySelectorAll('.seat.deleted')).map(s => s.id);
-
-        let layout = {};
-        document.querySelectorAll('.seat').forEach(seat => {
-            if (seat.children.length > 0) layout[seat.id] = seat.children[0].id;
-        });
-
-        let boxesData = customBoxes.map(b => ({
-            seats: b.attachedSeats.map(s => s.id),
-            color: b.el.style.borderColor
-        }));
-
+        if (studentsData.length === 0) { alert('当前没有数据可导出！'); return; }
         let exportData = {
             studentsData: studentsData,
-            config: config,
-            deletedSeatIds: deletedSeatIds,
-            layout: layout,
-            boxesData: boxesData
+            config: { cols: document.getElementById('set-cols').value, rows: document.getElementById('set-rows').value, colsPerGroup: document.getElementById('set-colsPerGroup').value, doorPos: document.getElementById('set-door').value, isMirrored: isMirrored },
+            deletedSeatIds: Array.from(document.querySelectorAll('.seat.deleted')).map(s => s.id),
+            layout: {},
+            boxesData: customBoxes.map(b => ({ seats: b.attachedSeats.map(s => s.id), color: b.el.style.borderColor }))
         };
+        document.querySelectorAll('.seat').forEach(seat => { if (seat.children.length > 0) exportData.layout[seat.id] = seat.children[0].id; });
 
         let dataStr = JSON.stringify(exportData, null, 2);
         let blob = new Blob([dataStr], { type: "application/json" });
         let url = URL.createObjectURL(blob);
-
-        let a = document.createElement('a');
-        a.href = url;
+        let a = document.createElement('a'); a.href = url;
         
         let now = new Date();
-        let dateStr = now.getFullYear() + '-' + 
-                      String(now.getMonth() + 1).padStart(2, '0') + '-' + 
-                      String(now.getDate()).padStart(2, '0') + '_' + 
-                      String(now.getHours()).padStart(2, '0') + '-' + 
-                      String(now.getMinutes()).padStart(2, '0') + '-' + 
-                      String(now.getSeconds()).padStart(2, '0');
+        let dateStr = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0') + '_' + String(now.getHours()).padStart(2, '0') + '-' + String(now.getMinutes()).padStart(2, '0');
                       
         a.download = `班级座位记录_${dateStr}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
     }
 
     document.getElementById('file-import-record').addEventListener('change', function(e) {
         let file = e.target.files[0];
         if (!file) return;
-
         let reader = new FileReader();
         reader.onload = function(e) {
             try {
-                let importedData = JSON.parse(e.target.result);
-                applyImportedData(importedData);
-                alert('✅ 成功读取本地排座文件并完美还原现场！');
-            } catch (err) {
-                alert('读取文件失败，请确保导入的是通过本系统生成的 `.json` 排座记录文件！');
-            }
+                applyImportedData(JSON.parse(e.target.result));
+                alert('✅ 成功读取文件并还原！');
+            } catch (err) { alert('读取失败，请检查文件格式！'); }
         };
-        reader.readAsText(file);
-        e.target.value = '';
+        reader.readAsText(file); e.target.value = '';
     });
 
     generateLayout();
 
 </script>
-
 </body>
 </html>
