@@ -139,19 +139,18 @@
     .custom-box .move-btn:hover { background: #1976D2; }
 
     /* =========================================
-       修改：极致手机端适配（上下双分屏不重叠）
+       完美修复：手机端适配（教室悬浮，名单自由滑动）
        ========================================= */
     @media (max-width: 800px) {
         .main-container { 
             display: flex; 
             flex-direction: column; 
-            padding-bottom: 10vh; /* 预留底部缓冲空间 */
         }
-        .left-panel { display: contents; }
+        .left-panel { display: contents; } /* 打破原本的左侧包裹，重新垂直排序 */
         
         .setup-box { order: 1; width: 100%; box-sizing: border-box; }
         
-        /* 上半部分：教室区，占据屏幕高度50%并固定在顶部 */
+        /* 教室区：固定在屏幕上方，最大高度不超过屏幕一半 */
         .right-panel { 
             order: 2; 
             width: 100%; 
@@ -159,30 +158,20 @@
             position: sticky; 
             top: 0; 
             z-index: 1000; 
-            height: 50vh; 
-            height: 50dvh; /* 兼容现代手机浏览器 */
-            max-height: none;
+            max-height: 55vh; /* 保证留出足够的下半部分滑动 */
             overflow-y: auto; 
             background: #fff; 
             border-bottom: 4px solid #ff9800; /* 分界线 */
             box-shadow: 0 10px 20px rgba(0,0,0,0.2); 
-            margin-bottom: 0;
+            margin-bottom: 15px;
             padding: 10px;
         }
         
-        /* 下半部分：名单区，紧紧贴在教室区正下方，占据另外50% */
+        /* 待分配区：取消任何悬浮锁定，回归最自然的网页滑动，绝对不会再消失 */
         .list-box { 
             order: 3; 
             width: 100%; 
             box-sizing: border-box; 
-            position: sticky; 
-            top: 50vh; 
-            top: 50dvh; 
-            height: 50vh; 
-            height: 50dvh; 
-            overflow-y: auto; /* 名单区自身独立滑动 */
-            z-index: 999;
-            background: #fff;
         }
         
         .bottom-area { margin-top: 20px; }
