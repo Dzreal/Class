@@ -184,7 +184,7 @@
             box-shadow: inset 4px 0 0 var(--theme-color);
         }
 
-        /* 云端配置区（隐藏了原本的GitHub字眼） */
+        /* 云端配置区 */
         .github-settings {
             margin-top: 15px;
             padding: 15px;
@@ -358,6 +358,78 @@
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+        /* ========================================= */
+        /* 📱 手机端/小屏幕自适应适配 (本次新增) */
+        /* ========================================= */
+        @media screen and (max-width: 900px) {
+            body {
+                height: auto;
+                min-height: 100vh;
+                padding: 15px;
+                box-sizing: border-box;
+                align-items: flex-start; 
+            }
+            .notebook {
+                width: 100%;
+                min-width: unset;
+                height: auto;
+                min-height: unset;
+                max-height: unset;
+                flex-direction: column; /* 改为上下堆叠 */
+                box-shadow: 5px 5px 20px rgba(0, 0, 0, 0.2);
+            }
+            .binding {
+                display: none; /* 手机端隐藏铁圈节省空间 */
+            }
+            .page {
+                padding: 20px; /* 缩小手机端内边距 */
+            }
+            .page.left {
+                border-right: none;
+                border-bottom: 2px dashed var(--line-color);
+                max-height: 45vh; /* 目录区在手机上限高，支持滑动 */
+                overflow-y: auto;
+            }
+            .page.right {
+                border-left: none;
+                min-height: 60vh; /* 保证书写区有足够高度 */
+            }
+            .header-info {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 15px;
+            }
+            .main-title {
+                font-size: 24px;
+                letter-spacing: 2px;
+            }
+            textarea.editor {
+                font-size: 16px; /* 字体稍微缩小适配小屏 */
+                line-height: 32px;
+                background-size: 100% 32px;
+                background-image: linear-gradient(transparent 31px, var(--line-color) 31px);
+            }
+            .actions {
+                flex-direction: column;
+                gap: 15px;
+                align-items: stretch;
+            }
+            .actions > div {
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+                width: 100%;
+            }
+            .status-msg {
+                margin-left: 0;
+                text-align: center;
+            }
+            button {
+                width: 100%; /* 按钮铺满屏幕宽度，方便单手点击 */
+                padding: 15px; 
+            }
+        }
     </style>
 </head>
 <body>
