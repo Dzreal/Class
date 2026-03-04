@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Excel 数据自动匹配工具 (完美格式保留版)</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f7f6;
+            color: #333;
+            line-height: 1.6;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+        }
+        .container {
+            background: #fff;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 750px;
+        }
+        h2 {
+            text-align: center;
+            color: #2c3e50;
+            margin-bottom: 20px;
+        }
+        .file-section {
+            border: 2px dashed #bdc3c7;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            background-color: #fafbfc;
+        }
+        .file-section h3 {
+            margin-top: 0;
+            font-size: 16px;
+            color: #34495e;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+        }
+        input[type="file"] {
+            display: block;
+            margin-top: 15px;
+            width: 100%;
+        }
+        
+        .rule-section {
+            background-color: #e8f4fd;
+            border: 1px solid #bde0fe;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .rule-title {
+            font-weight: bold;
+            color: #023e8a;
+            margin-bottom: 10px;
+        }
+        .key-match-box {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 15px;
+            padding-bottom: 15px;
+            border-bottom: 1px dashed #a2d2ff;
+        }
+        .mapping-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+            background: #fff;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            flex-wrap: wrap;
+        }
+        .input-group label {
+            font-size: 14px;
+            color: #555;
+        }
+        .input-group input[type="text"] {
+            width: 75px; 
+            padding: 5px;
+            text-align: center;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            text-transform: uppercase;
+            font-weight: bold;
+            color: #d35400;
+        }
+        .input-error {
+            border-color: #e74c3c !important;
+            background-color: #fadbd8 !important;
+        }
+        .btn-add {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            margin-top: 5px;
+        }
+        .btn-add:hover { background-color: #2980b9; }
+        .btn-del {
+            background-color: #e74c3c;
+            color: white;
+            border: none;
+            padding: 6px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            margin-left: auto;
+        }
+        .btn-del:hover { background-color: #c0392b; }
+        
+        .btn-merge {
+            display: block;
+            width: 100%;
+            padding: 12px;
+            background-color: #27ae60;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            font-weight: bold;
+            margin-top: 20px;
+        }
+        .btn-merge:hover { background-color: #219653; }
+        #status {
+            margin-top: 15px;
+            text-align: center;
+            font-weight: bold;
+            color: #e67e22;
+        }
+        .note {
+            font-size: 13px;
+            color: #7f8c8d;
+            margin-top: 20px;
+            background: #fdfae6;
+            padding: 10px;
+            border-radius: 5px;
+            border-left: 4px solid #f1c40f;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Excel 数据自动匹配工具 (完美格式保留版)</h2>
+    
+    <div class="file-section">
+        <h3>1. 上传 文件 A (目标文件 - 接收数据，保留原始样式)</h3>
+        <input type="file" id="fileA" accept=".xlsx">
+    </div>
+
+    <div class="file-section">
+        <h3>2. 上传 文件 B (数据源文件 - 提供数据)</h3>
+        <input type="file" id="fileB" accept=".xlsx">
+    </div>
+
+    <div class="rule-section">
+        <div class="rule-title">⚙️ 核心匹配依据</div>
+        <div class="key-match-box input-group">
+            <label>依据 文件 A 的第 <input type="text" id="fileA_key" value="" placeholder="例:A" style="width: 45px;"> 列</label>
+            <span> 去匹配 </span>
+            <label>文件 B 的第 <input type="text" id="fileB_key" value="" placeholder="例:A" style="width: 45px;"> 列</label>
+        </div>
+
+        <div class="rule-title">📋 数据搬运规则 (支持单列或连续列，如 E-K)</div>
+        <div id="mappingsContainer">
+            <div class="mapping-row input-group">
+                <label>提取 文件 B：<input type="text" class="map-b-val" value="" placeholder="如 C 或 E-K"></label>
+                <span> ➡️ 写入 </span>
+                <label>文件 A：<input type="text" class="map-a-val" value="" placeholder="如 D 或 F-L"></label>
+            </div>
+        </div>
+        <button class="btn-add" onclick="addMapping()">+ 添加其他搬运规则</button>
+    </div>
+
+    <button class="btn-merge" onclick="mergeExcel()">开始匹配并下载</button>
+    <div id="status">等待上传文件...</div>
+
+    <div class="note">
+        <strong>💡 进阶技巧：</strong> <br>
+        1. <b>格式完美保留：</b> 现在修改数据时，文件 A 的颜色、字体、边框等视觉格式将100%原样保留。<br>
+        2. <b>连续多列匹配：</b> 输入 `E-K` ➡️ `F-L` (将B文件的E到K列，按顺序填入A文件的F到L列，区间长度必须一致！)
+    </div>
+</div>
+
+<script>
+    let fileABuffer = null;
+    let fileBBuffer = null;
+    let fileNameA = "匹配完成_文件A.xlsx";
+
+    // 监听文件上传，将文件转为 ArrayBuffer 供 ExcelJS 使用
+    document.getElementById('fileA').addEventListener('change', function(e) { 
+        const file = e.target.files[0];
+        if (!file) return;
+        fileNameA = "已匹配_" + file.name;
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            fileABuffer = event.target.result;
+            updateStatus("文件A加载成功，等待配置...");
+        };
+        reader.readAsArrayBuffer(file);
+    });
+
+    document.getElementById('fileB').addEventListener('change', function(e) { 
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            fileBBuffer = event.target.result;
+            updateStatus("文件B加载成功，等待配置...");
+        };
+        reader.readAsArrayBuffer(file);
+    });
+
+    // 字母列号转数组索引 (A->0, B->1)
+    function colToInt(colLetter) {
+        if (!colLetter) return -1;
+        colLetter = colLetter.toUpperCase().trim();
+        let num = 0;
+        for (let i = 0; i < colLetter.length; i++) {
+            num = num * 26 + (colLetter.charCodeAt(i) - 64);
+        }
+        return num - 1;
+    }
+
+    // 解析输入的列范围
+    function parseColInput(inputStr) {
+        if (!inputStr) return [];
+        inputStr = inputStr.toUpperCase().trim();
+        
+        if (inputStr.includes('-')) {
+            const parts = inputStr.split('-');
+            if (parts.length !== 2) return [];
+            
+            let startIdx = colToInt(parts[0]);
+            let endIdx = colToInt(parts[1]);
+            
+            if (startIdx === -1 || endIdx === -1) return [];
+            
+            if (startIdx > endIdx) {
+                let temp = startIdx;
+                startIdx = endIdx;
+                endIdx = temp;
+            }
+            
+            const result = [];
+            for (let i = startIdx; i <= endIdx; i++) {
+                result.push(i);
+            }
+            return result;
+        } else {
+            const idx = colToInt(inputStr);
+            return idx !== -1 ? [idx] : [];
+        }
+    }
+
+    // 清除报错样式
+    function clearErrors() {
+        const inputs = document.querySelectorAll('input[type="text"]');
+        inputs.forEach(input => input.classList.remove('input-error'));
+    }
+
+    // 动态添加规则
+    function addMapping() {
+        const container = document.getElementById('mappingsContainer');
+        const row = document.createElement('div');
+        row.className = 'mapping-row input-group';
+        row.innerHTML = `
+            <label>提取 文件 B：<input type="text" class="map-b-val" value="" placeholder="如 C 或 E-K"></label>
+            <span> ➡️ 写入 </span>
+            <label>文件 A：<input type="text" class="map-a-val" value="" placeholder="如 D 或 F-L"></label>
+            <button class="btn-del" onclick="this.parentElement.remove()">删除</button>
+        `;
+        container.appendChild(row);
+    }
+
+    // 智能提取单元格内的纯文本值（兼容公式、富文本）
+    function getCellValue(cell) {
+        if (!cell) return null;
+        let val = cell.value;
+        if (val === null || val === undefined) return null;
+        if (typeof val === 'object') {
+            if (val.result !== undefined) return val.result; // 如果是公式，取计算结果
+            if (val.richText !== undefined) return val.richText.map(rt => rt.text).join(''); // 如果是带颜色的富文本，提取纯字
+            if (val.text !== undefined) return val.text; // 其他特殊对象
+        }
+        return val;
+    }
+
+    // 核心匹配逻辑 (使用 async/await 配合 ExcelJS 处理)
+    async function mergeExcel() {
+        clearErrors();
+
+        if (!fileABuffer || !fileBBuffer) {
+            alert("❌ 匹配失败：请先上传 文件A 和 文件B！(注意仅支持 .xlsx 格式)");
+            return;
+        }
+
+        const aKeyInput = document.getElementById('fileA_key');
+        const bKeyInput = document.getElementById('fileB_key');
+        
+        if (!aKeyInput.value.trim() || !bKeyInput.value.trim()) {
+            if (!aKeyInput.value.trim()) aKeyInput.classList.add('input-error');
+            if (!bKeyInput.value.trim()) bKeyInput.classList.add('input-error');
+            alert("❌ 匹配失败：请填写完整的【核心匹配依据】列号！");
+            return;
+        }
+
+        const aKeyIdx = colToInt(aKeyInput.value);
+        const bKeyIdx = colToInt(bKeyInput.value);
+
+        const mappings = [];
+        const mapRows = document.querySelectorAll('.mapping-row');
+        
+        if (mapRows.length === 0) {
+            alert("❌ 匹配失败：请至少保留一条【数据搬运规则】！");
+            return;
+        }
+
+        for (let r = 0; r < mapRows.length; r++) {
+            const row = mapRows[r];
+            const bNode = row.querySelector('.map-b-val');
+            const aNode = row.querySelector('.map-a-val');
+            const bInput = bNode.value.trim();
+            const aInput = aNode.value.trim();
+            
+            if (!bInput || !aInput) {
+                if (!bInput) bNode.classList.add('input-error');
+                if (!aInput) aNode.classList.add('input-error');
+                alert(`❌ 匹配失败：第 ${r + 1} 条【数据搬运规则】未填写完整！`);
+                return;
+            }
+
+            const bIndices = parseColInput(bInput);
+            const aIndices = parseColInput(aInput);
+            
+            if (bIndices.length === 0 || aIndices.length === 0) {
+                if (bIndices.length === 0) bNode.classList.add('input-error');
+                if (aIndices.length === 0) aNode.classList.add('input-error');
+                alert(`❌ 匹配失败：第 ${r + 1} 条规则格式错误！`);
+                return;
+            }
+            
+            if (bIndices.length !== aIndices.length) {
+                bNode.classList.add('input-error');
+                aNode.classList.add('input-error');
+                alert(`❌ 匹配失败：规则不对等！\n提取区间 "${bInput}" 包含 ${bIndices.length} 列，写入区间 "${aInput}" 包含 ${aIndices.length} 列。`);
+                return;
+            }
+            
+            for (let i = 0; i < bIndices.length; i++) {
+                mappings.push({ bIdx: bIndices[i], aIdx: aIndices[i] });
+            }
+        }
+
+        updateStatus("🔄 正在进行深度匹配，这可能需要几秒钟...");
+
+        try {
+            // 使用 ExcelJS 加载两个文件
+            const wbB = new ExcelJS.Workbook();
+            await wbB.xlsx.load(fileBBuffer);
+            const wsB = wbB.worksheets[0]; // 默认读取第一个表
+
+            const wbA = new ExcelJS.Workbook();
+            await wbA.xlsx.load(fileABuffer);
+            const wsA = wbA.worksheets[0];
+
+            // 1. 构建字典 (ExcelJS 的行列是从 1 开始的，所以索引要 +1)
+            const dataMap = {};
+            wsB.eachRow((row, rowNumber) => {
+                const keyVal = getCellValue(row.getCell(bKeyIdx + 1));
+                if (keyVal !== null && keyVal !== "") {
+                    const name = String(keyVal).trim(); 
+                    
+                    const rowValues = {};
+                    mappings.forEach(map => {
+                        // 提取纯数据（过滤掉公式本身，只拿结果），防止带入错误的公式
+                        let cellVal = getCellValue(row.getCell(map.bIdx + 1));
+                        rowValues[map.bIdx] = cellVal !== null ? cellVal : "";
+                    });
+                    dataMap[name] = rowValues;
+                }
+            });
+
+            // 2. 写入数据到 A 文件
+            wsA.eachRow((row, rowNumber) => {
+                const keyVal = getCellValue(row.getCell(aKeyIdx + 1));
+                if (keyVal !== null && keyVal !== "") {
+                    const name = String(keyVal).trim();
+                    
+                    if (dataMap.hasOwnProperty(name)) {
+                        mappings.forEach(map => {
+                            // 【核心】：只修改 .value，完美保留该格子原有的颜色、边框、字体等 style 属性
+                            const targetCell = row.getCell(map.aIdx + 1);
+                            targetCell.value = dataMap[name][map.bIdx];
+                        });
+                    }
+                }
+            });
+
+            // 3. 生成并下载文件
+            const buffer = await wbA.xlsx.writeBuffer();
+            const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+            
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileNameA;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+            
+            updateStatus("✨ 匹配成功！颜色和边框已完美保留，文件开始下载。");
+        } catch (error) {
+            console.error(error);
+            updateStatus("❌ 生成文件时出错，请检查控制台。");
+            alert("处理文件时发生错误，请确保上传的是标准的 .xlsx 格式文件！");
+        }
+    }
+
+    function updateStatus(msg) {
+        document.getElementById('status').innerText = msg;
+    }
+</script>
+
+</body>
+</html>
