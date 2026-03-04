@@ -184,7 +184,7 @@
             box-shadow: inset 4px 0 0 var(--theme-color);
         }
 
-        /* GitHub 配置区 */
+        /* 云端配置区（隐藏了原本的GitHub字眼） */
         .github-settings {
             margin-top: 15px;
             padding: 15px;
@@ -222,7 +222,6 @@
             font-weight: bold;
         }
 
-        /* 日历选择器美化 */
         .date-picker-wrapper {
             position: relative;
             display: flex;
@@ -248,7 +247,6 @@
             border-bottom: 2px dashed #cbd5e1;
         }
 
-        /* 隐藏日历图标(仅Webkit有效)，让点击文字即可弹出 */
         input[type="date"]::-webkit-calendar-picker-indicator {
             background: transparent;
             bottom: 0;
@@ -372,15 +370,15 @@
             
             <div class="search-box">
                 <span class="search-icon">🔍</span>
-                <input type="text" id="searchInput" placeholder="搜索关键字（例如学生姓名）...">
+                <input type="text" id="searchInput" placeholder="支持多关键字同排搜索（空格隔开）...">
             </div>
 
             <div class="history-list" id="historyList">
                 </div>
 
             <div class="github-settings">
-                <strong>⚙️ GitHub 私有库同步配置</strong>
-                <label style="margin-top:8px;">Personal Access Token:</label>
+                <strong>⚙️ 云端私有库同步配置</strong>
+                <label style="margin-top:8px;">访问令牌 (Token):</label>
                 <input type="password" id="ghToken" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx">
                 <label>文件保存路径 (可区分不同班级):</label>
                 <input type="text" id="ghPath" placeholder="data/logs_classA.json" value="logs.json">
@@ -418,7 +416,7 @@
             
             <div class="actions">
                 <div style="display:flex; align-items:center;">
-                    <button class="btn-save" id="btnSave">保存并同步 GitHub</button>
+                    <button class="btn-save" id="btnSave">保存并同步至云端</button>
                     <span class="status-msg" id="statusMsg"></span>
                 </div>
                 <button class="btn-export" id="btnExport">导出为 TXT</button>
@@ -474,7 +472,6 @@
             loadLog(todayStr);
         }
 
-        // 确保某天的日志数据结构存在，处理旧数据兼容
         function ensureLogExists(dateStr) {
             if (!logsData[dateStr]) {
                 const dateObj = new Date(dateStr);
@@ -482,12 +479,11 @@
                     date: dateStr,
                     weekday: getWeekday(dateObj),
                     weather: '☀️',
-                    contentGood: '• ', // 默认带点
-                    contentBad: '• '   // 默认带点
+                    contentGood: '• ', 
+                    contentBad: '• '   
                 };
                 saveToLocal();
             } else {
-                // 兼容老版本单文本数据
                 if (logsData[dateStr].content !== undefined) {
                     logsData[dateStr].contentGood = logsData[dateStr].content;
                     delete logsData[dateStr].content;
@@ -496,52 +492,91 @@
             }
         }
 
-        // --- 核心交互：搜索与渲染 ---
-        
+        // HTML 转义，防止搜索关键词破坏 DOM
+        function escapeHtml(unsafe) {
+            return unsafe
+                 .replace(/&/g, "&amp;")
+                 .replace(/</g, "&lt;")
+                 .replace(/>/g, "&gt;")
+                 .replace(/"/g, "&quot;")
+                 .replace(/'/g, "&#039;");
+        }
+
         searchInput.addEventListener('input', function() {
-            renderHistoryList(this.value.trim());
+            renderHistoryList(this.value);
         });
 
-        // 渲染历史列表，支持搜索关键字高亮过滤
+        // --- 核心更新：渲染列表与多关键字高级搜索 ---
         function renderHistoryList(filterTerm = '') {
             historyList.innerHTML = '';
+            // 依然保持时间倒序（最新的排在最上面）
             const sortedDates = Object.keys(logsData).sort((a, b) => new Date(b) - new Date(a)); 
             
-            const lowerFilter = filterTerm.toLowerCase();
+            // 按空格分割关键词，并过滤掉空字符串
+            const keywords = filterTerm.trim().toLowerCase().split(/\s+/).filter(k => k);
 
             sortedDates.forEach(date => {
                 const log = logsData[date];
                 const cGood = log.contentGood || '';
                 const cBad = log.contentBad || '';
                 
+                // 1. 空记录过滤：如果这天完全没写内容（只有自带的圆点和空格换行），直接跳过，不在左边显示！
+                const textG = cGood.replace(/[•\s\n\r]/g, '');
+                const textB = cBad.replace(/[•\s\n\r]/g, '');
+                if (textG === '' && textB === '') return; 
+
                 let snippetHtml = '';
                 let isMatch = false;
 
-                if (lowerFilter) {
-                    // 在好和坏两个区域搜索
-                    const matchG = cGood.toLowerCase().indexOf(lowerFilter);
-                    const matchB = cBad.toLowerCase().indexOf(lowerFilter);
-
-                    if (matchG === -1 && matchB === -1) return; // 不匹配则跳过渲染
-                    isMatch = true;
-
-                    // 提取上下文摘要并高亮
-                    let matchContext = '';
-                    if (matchG !== -1) {
-                        const start = Math.max(0, matchG - 10);
-                        matchContext = `😃 ...${cGood.substring(start, matchG + 20).replace(/\n/g, ' ')}...`;
-                    } else {
-                        const start = Math.max(0, matchB - 10);
-                        matchContext = `🙄 ...${cBad.substring(start, matchB + 20).replace(/\n/g, ' ')}...`;
+                if (keywords.length > 0) {
+                    let matchLine = '';
+                    let emojiPrefix = '';
+                    
+                    // 检查 😃 区域，按行分割
+                    const goodLines = cGood.split('\n');
+                    for (let line of goodLines) {
+                        // 必须所有关键字都在同一行内才算匹配
+                        if (keywords.every(kw => line.toLowerCase().includes(kw))) {
+                            isMatch = true;
+                            matchLine = line;
+                            emojiPrefix = '😃';
+                            break;
+                        }
                     }
                     
-                    // 替换关键字为高亮标签
-                    const regex = new RegExp(filterTerm, 'gi');
-                    snippetHtml = `<div class="history-snippet">${matchContext.replace(regex, match => `<span class="highlight">${match}</span>`)}</div>`;
+                    // 检查 🙄 区域
+                    if (!isMatch) {
+                        const badLines = cBad.split('\n');
+                        for (let line of badLines) {
+                            if (keywords.every(kw => line.toLowerCase().includes(kw))) {
+                                isMatch = true;
+                                matchLine = line;
+                                emojiPrefix = '🙄';
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!isMatch) return; // 这天的记录中没有哪一行同时包含所有关键词
+
+                    // 高亮该行的所有关键字
+                    let highlightedLine = escapeHtml(matchLine);
+                    const escapedKeywords = keywords.map(kw => kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+                    const combinedRegex = new RegExp(`(${escapedKeywords.join('|')})`, 'gi');
+                    highlightedLine = highlightedLine.replace(combinedRegex, '<span class="highlight">$1</span>');
+                    
+                    snippetHtml = `<div class="history-snippet">${emojiPrefix} ${highlightedLine}</div>`;
                 } else {
-                    // 无搜索词时，默认截取好事情的第一段作为摘要
-                    const preview = cGood.replace(/• |\n/g, ' ').trim().substring(0, 15);
-                    if (preview) snippetHtml = `<div class="history-snippet">${preview}...</div>`;
+                    // 无搜索时展示摘要
+                    let previewText = cGood.replace(/• |\n/g, ' ').trim();
+                    let emojiPrefix = '😃';
+                    if (!previewText) {
+                        previewText = cBad.replace(/• |\n/g, ' ').trim();
+                        emojiPrefix = '🙄';
+                    }
+                    if (previewText) {
+                        snippetHtml = `<div class="history-snippet">${emojiPrefix} ${previewText.substring(0, 18)}...</div>`;
+                    }
                 }
 
                 const div = document.createElement('div');
@@ -555,7 +590,6 @@
                     ${snippetHtml}
                 `;
                 div.onclick = () => {
-                    // 如果正在搜索，点击后清空搜索框以恢复全列表
                     if(filterTerm) {
                         searchInput.value = '';
                         renderHistoryList();
@@ -566,9 +600,6 @@
             });
         }
 
-        // --- 核心交互：加载与编辑 ---
-
-        // 监听日期选择器改变，实现补写功能
         dateInput.addEventListener('change', function() {
             const selectedDate = this.value;
             if (!selectedDate) return;
@@ -581,28 +612,22 @@
             currentDateStr = dateStr;
             const log = logsData[dateStr];
             
-            // 更新日期 UI
             dateInput.value = log.date;
             weekdayDisplay.textContent = log.weekday;
             
-            // 填入内容，如果为空自动补点
             editorGood.value = log.contentGood === '' ? '• ' : (log.contentGood || '• ');
             editorBad.value = log.contentBad === '' ? '• ' : (log.contentBad || '• ');
             
-            // 天气高亮
             weatherIcons.forEach(icon => {
                 icon.classList.toggle('active', icon.dataset.weather === log.weather);
             });
 
-            // 保持搜索词的情况下不刷新列表活跃状态（防止搜索结果被洗掉）
             if(!searchInput.value) {
                 renderHistoryList(); 
             }
-            
             showStatus('已加载数据');
         }
 
-        // 自动分点逻辑提取为通用函数
         function handleAutoBullet(e, textarea) {
             if (e.key === 'Enter') {
                 e.preventDefault();
@@ -634,12 +659,15 @@
             });
         });
 
-        // --- 数据存取与 GitHub 同步 ---
-
         function triggerAutoSave() {
             logsData[currentDateStr].contentGood = editorGood.value;
             logsData[currentDateStr].contentBad = editorBad.value;
             saveToLocal();
+            
+            // 实时打字时，如果原本是空记录，一打字就会让它瞬间出现在左边列表中
+            if(!searchInput.value) {
+                renderHistoryList();
+            }
             
             showStatus('自动保存中...');
             clearTimeout(editorTimer);
@@ -675,10 +703,10 @@
             const path = ghPathInput.value.trim();
 
             if (!token || !path) {
-                alert('请填写 GitHub Token 和 保存路径！'); return;
+                alert('请填写 Token 和 保存路径！'); return;
             }
 
-            showStatus('正在同步到 GitHub...');
+            showStatus('正在同步到云端...');
             document.getElementById('btnSave').disabled = true;
 
             const apiUrl = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${path}`;
@@ -695,7 +723,7 @@
                 if (getRes.status === 200) {
                     sha = (await getRes.json()).sha; 
                 } else if (getRes.status !== 404) {
-                    throw new Error('获取仓库信息失败，请检查 Token。');
+                    throw new Error('获取云端信息失败，请检查 Token。');
                 }
 
                 const encodedContent = utf8_to_b64(JSON.stringify(logsData, null, 2));
@@ -705,7 +733,7 @@
                 const putRes = await fetch(apiUrl, { method: 'PUT', headers, body: JSON.stringify(bodyData) });
 
                 if (putRes.status === 200 || putRes.status === 201) {
-                    showStatus('✅ 成功同步并覆盖到 GitHub!');
+                    showStatus('✅ 成功同步并覆盖到云端!');
                 } else {
                     throw new Error(`写入失败: 状态码 ${putRes.status}`);
                 }
@@ -718,7 +746,6 @@
             }
         });
 
-        // 导出 TXT（支持分栏内容）
         document.getElementById('btnExport').addEventListener('click', () => {
             const log = logsData[currentDateStr];
             const content = `日期: ${log.date} ${log.weekday}\n天气: ${log.weather}\n---\n【今日班级纪要】\n\n😃 良好表现与事务:\n${log.contentGood}\n\n🙄 需改进与糟心事:\n${log.contentBad}`;
