@@ -107,6 +107,7 @@
     
     .btn-load { background-color: #2196F3; } .btn-save { background-color: #4CAF50; } .btn-reset { background-color: #f44336; }
     .btn-random { background-color: #673ab7; } .btn-rotate { background-color: #009688; } .btn-export { background-color: #795548; } .btn-mirror { background-color: #607d8b; }
+    .btn-toggle-boxes { background-color: #ff5722; }
     
     .btn-import-label { display: inline-block; padding: 10px 15px; font-size: 15px; font-weight: bold; border-radius: 5px; cursor: pointer; color: white; background-color: #607d8b; box-shadow: 0 2px 4px rgba(0,0,0,0.2); transition: 0.2s; }
     .btn-import-label:hover { opacity: 0.8; transform: translateY(-1px); }
@@ -251,6 +252,7 @@
                 <button class="btn-random" onclick="randomizeSeats()">🎲 男女随机相间排座</button>
                 <button class="btn-rotate" onclick="rotateGroups()">🔄 S型小组轮换</button>
                 <button class="btn-mirror" id="btn-mirror" onclick="toggleMirror()">🔄 师生视角切换</button>
+                <button class="btn-toggle-boxes" id="btn-toggle-boxes" onclick="toggleBoxes()">🔲 隐藏小组框</button>
                 <button class="btn-reset" onclick="resetAll()">名单全体归位</button>
             </div>
 
@@ -305,6 +307,7 @@
     // === 变量声明（严格避免重复声明） ===
     let studentsData = [];
     let isMirrored = false; 
+    let isBoxesHidden = false; // 新增：记录小组框是否被隐藏
     let customBoxes = [];
     let colorIndexTracker = 0;
     
@@ -510,6 +513,14 @@
                 }
             });
         }
+
+        // 读取后默认恢复显示小组框
+        isBoxesHidden = false;
+        let toggleBtn = document.getElementById('btn-toggle-boxes');
+        if (toggleBtn) {
+            toggleBtn.innerHTML = '🔲 隐藏小组框';
+            toggleBtn.style.backgroundColor = '';
+        }
     }
 
     document.getElementById('file-upload').addEventListener('change', function(e) {
@@ -659,10 +670,37 @@
 
         customBoxes.forEach(b => b.updateLayout());
     }
+    
+    // === 新增：隐藏/显示小组框功能 ===
+    function toggleBoxes() {
+        isBoxesHidden = !isBoxesHidden;
+        let btn = document.getElementById('btn-toggle-boxes');
+        
+        if (isBoxesHidden) {
+            btn.innerHTML = '🔲 恢复小组框';
+            btn.style.backgroundColor = '#9e9e9e'; // 隐藏时置灰
+            customBoxes.forEach(b => b.el.style.display = 'none');
+        } else {
+            btn.innerHTML = '🔲 隐藏小组框';
+            btn.style.backgroundColor = ''; // 恢复CSS默认
+            customBoxes.forEach(b => {
+                b.el.style.display = 'block';
+                b.updateLayout(); // 确保位置正确刷新
+            });
+        }
+    }
 
     function generateLayout() {
         let wasMirrored = isMirrored;
         isMirrored = false; 
+        
+        // 重新生成时重置小组框的隐藏状态
+        isBoxesHidden = false; 
+        let toggleBtn = document.getElementById('btn-toggle-boxes');
+        if (toggleBtn) {
+            toggleBtn.innerHTML = '🔲 隐藏小组框';
+            toggleBtn.style.backgroundColor = '';
+        }
         
         let cols = parseInt(document.getElementById('set-cols').value);
         let rows = parseInt(document.getElementById('set-rows').value);
@@ -911,7 +949,10 @@
 
         if (draggedElement.id === 'rect-tool') {
             let targetSeat = e.target.closest('.seat:not(.deleted)');
-            if (targetSeat) createCustomBox([targetSeat]);
+            if (targetSeat) {
+                if (isBoxesHidden) toggleBoxes(); // 新建框时，如果是隐藏状态则自动恢复全显
+                createCustomBox([targetSeat]);
+            }
             return; 
         }
         
@@ -954,7 +995,10 @@
         if (!draggedEl) return;
         if (draggedEl.id === 'rect-tool') {
             let targetSeat = target.closest('.seat:not(.deleted)');
-            if (targetSeat) createCustomBox([targetSeat]);
+            if (targetSeat) {
+                if (isBoxesHidden) toggleBoxes(); // 新建框时，如果是隐藏状态则自动恢复全显
+                createCustomBox([targetSeat]);
+            }
             return; 
         }
         while (target && !target.classList.contains('seat') && !target.classList.contains('pool-col') && !target.classList.contains('student')) {
