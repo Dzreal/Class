@@ -468,7 +468,7 @@
                 <label style="margin-top:8px;">访问令牌 (Token):</label>
                 <input type="password" id="ghToken" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx">
                 <label>文件保存路径 (可区分不同班级):</label>
-                <input type="text" id="ghPath" placeholder="data/logs_classA.json" value="logs.json">
+                <input type="text" id="ghPath" placeholder="六4.json" value="六4.json">
                 <button class="btn-pull" id="btnPull">⬇️ 强制从云端拉取 (覆盖本地)</button>
             </div>
         </div>
@@ -759,17 +759,17 @@
             setTimeout(() => { if(statusMsg.textContent === msg) statusMsg.textContent = ''; }, 3000);
         }
 
-        // 编码解码工具
+        // 编码解码工具 (过滤多余换行符，防止包含换行时抛出 DOMException)
         function utf8_to_b64(str) { 
             return window.btoa(unescape(encodeURIComponent(str))); 
         }
         function b64_to_utf8(str) { 
-            return decodeURIComponent(escape(window.atob(str))); 
+            return decodeURIComponent(escape(window.atob(str.replace(/[\r\n\s]/g, '')))); 
         }
 
         function loadGitHubConfig() {
             ghTokenInput.value = localStorage.getItem('gh_token') || '';
-            ghPathInput.value = localStorage.getItem('gh_path') || 'logs.json';
+            ghPathInput.value = localStorage.getItem('gh_path') || '六4.json';
         }
 
         function saveGitHubConfig() {
@@ -777,7 +777,7 @@
             localStorage.setItem('gh_path', ghPathInput.value.trim());
         }
 
-        // --- 纯手动拉取/覆盖数据逻辑 (重命名为强制拉取，避免误操作) ---
+        // --- 纯手动拉取/覆盖数据逻辑 ---
         document.getElementById('btnPull').addEventListener('click', async () => {
             saveGitHubConfig();
             const token = ghTokenInput.value.trim();
@@ -793,7 +793,8 @@
             showStatus('正在从云端读取...');
             document.getElementById('btnPull').disabled = true;
 
-            const apiUrl = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${path}`;
+            // 使用 encodeURIComponent 确保中文文件名也能正常请求
+            const apiUrl = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${encodeURIComponent(path)}`;
             const headers = {
                 'Authorization': `token ${token}`,
                 'Accept': 'application/vnd.github.v3+json'
@@ -811,13 +812,18 @@
                         logsData = cloudData;
                         saveToLocal();
                         
-                        // 重新初始化页面以显示最新数据
-                        const todayStr = getFormattedDate(new Date());
-                        ensureLogExists(todayStr);
+                        // 重新初始化页面：优先展示拉取下来的【最新一天】的数据，不再强行展示空模板
                         renderHistoryList();
-                        loadLog(todayStr); 
+                        const sortedDates = Object.keys(logsData).sort((a, b) => new Date(b) - new Date(a));
+                        if (sortedDates.length > 0) {
+                            loadLog(sortedDates[0]); 
+                        } else {
+                            const todayStr = getFormattedDate(new Date());
+                            ensureLogExists(todayStr);
+                            loadLog(todayStr); 
+                        }
                         
-                        alert('✅ 成功从云端恢复数据！');
+                        alert('✅ 成功从云端恢复数据！请查看页面和左侧列表。');
                         showStatus('数据已恢复');
                     } else {
                         alert('云端文件数据为空。');
@@ -852,7 +858,7 @@
             showStatus('正在请求云端数据...');
             document.getElementById('btnSave').disabled = true;
 
-            const apiUrl = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${path}`;
+            const apiUrl = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${encodeURIComponent(path)}`;
             const headers = {
                 'Authorization': `token ${token}`,
                 'Accept': 'application/vnd.github.v3+json',
