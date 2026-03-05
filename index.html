@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>班级管理工具箱</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f7f6;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        header {
+            background-color: #4a90e2;
+            color: white;
+            width: 100%;
+            padding: 2.5rem 0;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        h1 {
+            margin: 0;
+            font-size: 2.2rem;
+            letter-spacing: 2px;
+        }
+        .container {
+            max-width: 900px;
+            width: 90%;
+            margin: 3rem auto;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 25px;
+        }
+        .card {
+            background-color: white;
+            border-radius: 12px;
+            padding: 2rem;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            text-decoration: none;
+            color: #333;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .card:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.12);
+        }
+        .icon {
+            font-size: 3.5rem;
+            margin-bottom: 1rem;
+        }
+        .card h2 {
+            margin: 0 0 0.8rem 0;
+            font-size: 1.3rem;
+            color: #2c3e50;
+        }
+        .card p {
+            margin: 0;
+            color: #7f8c8d;
+            font-size: 0.95rem;
+            line-height: 1.5;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>班级管理工具箱</h1>
+    </header>
+
+    <div class="container">
+        <a href="classseats.html" class="card">
+            <div class="icon">🪑</div>
+            <h2>互动座位表</h2>
+            <p>快速生成与调整学生座位安排，支持男女生分布与小组排列</p>
+        </a>
+
+        <a href="classjournal.html" class="card">
+            <div class="icon">📖</div>
+            <h2>班级日志</h2>
+            <p>记录与查看班级日常事务与学生情况</p>
+        </a>
+
+        <a href="exceltrans.html" class="card">
+            <div class="icon">📊</div>
+            <h2>表格数据处理</h2>
+            <p>快速处理、转换与导出Excel表格数据</p>
+        </a>
+    </div>
+
+</body>
+</html>
