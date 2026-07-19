@@ -463,7 +463,6 @@
                     <select id="seatClassSelector" aria-label="选择当前班级" onchange="applySelectedSeatClass()" style="flex:1; min-width:0; padding:10px; border:1px solid #c2c7cf; border-radius:8px;">
                         <option value="">请先核实 Token</option>
                     </select>
-                    <button class="btn-github-load" onclick="refreshSeatClassSelector()" aria-label="刷新班级列表">刷新</button>
                 </div>
                 <div id="seatClassStatus" style="font-size:12px; color:#8e9196; margin-top:7px;">当前使用本地名单，不关联 GitHub 班级。</div>
             </div>
@@ -477,7 +476,6 @@
                     <select id="seatRecordSelector" aria-label="选择云端座位记录" style="flex:1; min-width:0; padding:10px; border:1px solid #c2c7cf; border-radius:8px;">
                         <option value="">请先选择班级</option>
                     </select>
-                    <button class="btn-github-load" onclick="refreshSeatRecordSelector()" aria-label="刷新座位记录">刷新</button>
                 </div>
                 <button class="btn-github-load" id="loadSeatRecordBtn" onclick="loadFromGitHubCloud()" style="width:100%; margin-top:8px;">读取选中记录</button>
             </div>
@@ -571,6 +569,8 @@
         const status = document.getElementById('tokenVerifyStatus');
         status.textContent = 'Token 已改变，请重新核实。';
         status.style.color = '#8e9196';
+        document.getElementById('seatClassSelector').innerHTML = '<option value="">请先核实 Token</option>';
+        document.getElementById('seatRecordSelector').innerHTML = '<option value="">请先选择班级</option>';
     }
 
     function requireVerifiedToken() {
@@ -600,7 +600,8 @@
             status.textContent = '✅ Token 已核实，可以访问 Class-Data。';
             status.style.color = '#187a3b';
             await refreshSeatClassSelector(true);
-            await refreshSeatRecordSelector(true);
+            document.getElementById('seatClassSelector').value = '';
+            document.getElementById('seatRecordSelector').innerHTML = '<option value="">请先选择班级</option>';
         } catch (error) {
             verifiedGitHubToken = '';
             status.textContent = '❌ ' + error.message;
