@@ -820,8 +820,14 @@
             const fileName = document.getElementById('cloudClassList').value;
             if(!fileName) { alert('请先在下拉框选择要删除的名单'); return; }
             if(confirm(`🚨 危险操作！确定要永久删除云端名单 [${fileName.replace('.json', '')}] 吗？`)) {
-                const success = await GitHub.deleteFile(`classeslists/${fileName}`, `Delete class list ${fileName}`);
+                const deletedPath = `classeslists/${fileName}`;
+                const success = await GitHub.deleteFile(deletedPath, `Delete class list ${fileName}`);
                 if(success) { 
+                    if (appData.classListFile === deletedPath) {
+                        appData.classListFile = '';
+                        ClassTools.saveCurrentStudentListFile('');
+                        saveToLocal();
+                    }
                     alert('已彻底删除！'); 
                     refreshCloudClasses(); 
                 }
@@ -1233,6 +1239,9 @@
         // --- 本地缓存机制 ---
         function saveToLocal() {
             try {
+                if (appData.classListFile) {
+                    ClassTools.saveCurrentStudentListFile(appData.classListFile);
+                }
                 localStorage.setItem('classVoteData', JSON.stringify(appData));
                 return true;
             } catch (error) {
@@ -1246,6 +1255,11 @@
                 const saved = localStorage.getItem('classVoteData');
                 if (saved) {
                     appData = normalizeVoteData(JSON.parse(saved));
+                }
+                const currentClassListFile = appData.classListFile || ClassTools.loadCurrentStudentListFile();
+                if (currentClassListFile) {
+                    appData.classListFile = currentClassListFile;
+                    ClassTools.saveCurrentStudentListFile(currentClassListFile);
                 }
             } catch (e) { console.error("本地数据解析失败"); }
         }

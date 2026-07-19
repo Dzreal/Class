@@ -48,6 +48,7 @@
     }
 
     const STUDENT_LIST_SCHEMA_VERSION = 2;
+    const CURRENT_STUDENT_LIST_FILE_KEY = 'classToolsCurrentStudentListFile';
 
     // 老座位表没有学号时，根据姓名和原顺序生成稳定的兼容 ID。
     // 这个 ID 只负责迁移旧数据；一旦与投票名单合并，就会优先使用真实学号。
@@ -130,6 +131,36 @@
             updatedAt: Date.now(),
             students: normalizeStudentList(students)
         };
+    }
+
+    function isStudentListFile(path) {
+        const safePath = String(path ?? '').trim();
+        return /^classeslists\/[^/]+\.json$/i.test(safePath) && validateGitHubRelativePath(safePath);
+    }
+
+    // 两个页面只记住“当前班级名单”，这是内部状态，不需要用户在排座页重复选择。
+    function loadCurrentStudentListFile(legacyKeys = []) {
+        let path = localStorage.getItem(CURRENT_STUDENT_LIST_FILE_KEY) || '';
+        if (!isStudentListFile(path)) {
+            path = '';
+            for (const key of legacyKeys) {
+                const legacyPath = localStorage.getItem(key) || '';
+                if (isStudentListFile(legacyPath)) {
+                    path = legacyPath;
+                    break;
+                }
+            }
+        }
+        if (path) localStorage.setItem(CURRENT_STUDENT_LIST_FILE_KEY, path);
+        legacyKeys.forEach(key => localStorage.removeItem(key));
+        return path;
+    }
+
+    function saveCurrentStudentListFile(path) {
+        const safePath = isStudentListFile(path) ? String(path).trim() : '';
+        if (safePath) localStorage.setItem(CURRENT_STUDENT_LIST_FILE_KEY, safePath);
+        else localStorage.removeItem(CURRENT_STUDENT_LIST_FILE_KEY);
+        return safePath;
     }
 
     function normalizeSpreadsheetHeader(value) {
@@ -267,11 +298,13 @@
         encodeGitHubPath,
         escapeHtml,
         loadGitHubToken,
+        loadCurrentStudentListFile,
         normalizeStudentList,
         normalizeStudentListDocument,
         normalizeSpreadsheetHeader,
         preserveStudentIdsFromReference,
         readSpreadsheetRows,
+        saveCurrentStudentListFile,
         saveGitHubToken,
         shuffleInPlace,
         studentListSchemaVersion: STUDENT_LIST_SCHEMA_VERSION,
