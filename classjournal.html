@@ -278,37 +278,6 @@
             box-shadow: 0 4px 12px rgba(26, 108, 48, 0.2);
         }
 
-        /* 本地安全备份区：危险操作前自动留存快照，避免误覆盖后无法恢复 */
-        .backup-panel {
-            margin-top: 18px;
-            padding-top: 16px;
-            border-top: 1px solid var(--line-color);
-            display: flex;
-            flex-direction: column;
-        }
-
-        .backup-hint {
-            margin-top: 5px;
-            color: var(--on-surface-variant);
-            line-height: 1.5;
-        }
-
-        .btn-backup {
-            background-color: #d3e3fd;
-            color: #041e49;
-            padding: 10px 16px;
-            font-size: 14px;
-            border: none;
-            border-radius: 9999px;
-            cursor: pointer;
-            font-weight: 500;
-        }
-
-        .btn-backup:disabled {
-            cursor: not-allowed;
-            opacity: 0.55;
-        }
-
         /* 右侧书写区 */
         .header-info {
             display: flex;
@@ -607,12 +576,6 @@
                 <input type="text" id="ghPath" placeholder="六4.json" value="六4.json">
                 <button class="btn-pull" id="btnPull" style="margin-top: 20px;">⬇️ 强制从云端拉取 (覆盖本地)</button>
                 <button class="btn-push" id="btnPushCloud" style="margin-top: 10px;">☁️ 保存至云端</button>
-                <div class="backup-panel">
-                    <strong>🛟 本地安全备份</strong>
-                    <span class="backup-hint" id="backupHint">危险操作前会自动保留最近 10 份记录。</span>
-                    <select id="backupList" aria-label="选择要恢复的本地备份"></select>
-                    <button class="btn-backup" id="btnRestoreBackup">恢复选中的备份</button>
-                </div>
             </div>
         </div>
     </div>
@@ -621,8 +584,6 @@
         // =========================================================================
         const GITHUB_OWNER = 'Dzreal'; 
         const GITHUB_REPO = 'Class-Data';   
-        const BACKUP_STORAGE_KEY = 'classLogsBackups';
-        const MAX_LOCAL_BACKUPS = 10;
         // =========================================================================
 
         // 本地数据损坏时不让整个页面停止运行，后续仍可从备份或云端恢复。
@@ -652,9 +613,6 @@
         const statusMsg = document.getElementById('statusMsg');
         const ghTokenInput = document.getElementById('ghToken');
         const ghPathInput = document.getElementById('ghPath');
-        const backupList = document.getElementById('backupList');
-        const backupHint = document.getElementById('backupHint');
-        const btnRestoreBackup = document.getElementById('btnRestoreBackup');
 
         const bindingStr = Array(18).fill('<div class="ring"></div>').join('');
         document.getElementById('binding').innerHTML = bindingStr;
@@ -676,7 +634,6 @@
             // 兼容没有修改时间的旧记录，不改变原有文字内容。
             logsData = normalizeLogsData(logsData);
             saveToLocal();
-            renderBackupList();
             const today = new Date();
             const todayStr = getFormattedDate(today);
             
@@ -931,105 +888,6 @@
             });
         }
 
-        function readLocalBackups() {
-            try {
-                const backups = JSON.parse(localStorage.getItem(BACKUP_STORAGE_KEY)) || [];
-                return Array.isArray(backups) ? backups : [];
-            } catch (error) {
-                console.error('本地备份列表格式损坏。', error);
-                return [];
-            }
-        }
-
-        // 在云端覆盖、合并、恢复等操作前保存完整快照，最多保留最近 10 份。
-        function createLocalBackup(reason, sourceData = logsData) {
-            const safeData = normalizeLogsData(sourceData);
-            if (Object.keys(safeData).length === 0) return true;
-
-            const backups = readLocalBackups();
-            const dataText = JSON.stringify(safeData);
-
-            // 连续操作的数据完全相同时不重复占用备份名额。
-            if (backups[0] && JSON.stringify(backups[0].data) === dataText) {
-                renderBackupList();
-                return true;
-            }
-
-            const now = Date.now();
-            const backup = {
-                id: `${now}-${Math.random().toString(36).slice(2, 8)}`,
-                createdAt: now,
-                reason,
-                data: safeData
-            };
-
-            try {
-                backups.unshift(backup);
-                localStorage.setItem(BACKUP_STORAGE_KEY, JSON.stringify(backups.slice(0, MAX_LOCAL_BACKUPS)));
-                renderBackupList();
-                return true;
-            } catch (error) {
-                console.error('本地安全备份保存失败。', error);
-                alert('⚠️ 本地存储空间不足，无法创建安全备份。为防止数据丢失，本次覆盖操作已经停止。');
-                return false;
-            }
-        }
-
-        function formatBackupTime(timestamp) {
-            return new Date(timestamp).toLocaleString('zh-CN', { hour12: false });
-        }
-
-        function renderBackupList() {
-            const backups = readLocalBackups();
-            backupList.innerHTML = '';
-
-            if (backups.length === 0) {
-                const option = document.createElement('option');
-                option.value = '';
-                option.textContent = '暂无本地安全备份';
-                backupList.appendChild(option);
-                backupList.disabled = true;
-                btnRestoreBackup.disabled = true;
-                backupHint.textContent = '危险操作前会自动保留最近 10 份记录。';
-                return;
-            }
-
-            backups.forEach(backup => {
-                const option = document.createElement('option');
-                option.value = backup.id;
-                option.textContent = `${formatBackupTime(backup.createdAt)} · ${backup.reason}`;
-                backupList.appendChild(option);
-            });
-
-            backupList.disabled = false;
-            btnRestoreBackup.disabled = false;
-            backupHint.textContent = `当前保存了 ${backups.length} 份快照，最多保留 ${MAX_LOCAL_BACKUPS} 份。`;
-        }
-
-        btnRestoreBackup.addEventListener('click', () => {
-            const backups = readLocalBackups();
-            const selectedBackup = backups.find(backup => backup.id === backupList.value);
-            if (!selectedBackup) {
-                alert('没有找到选中的本地备份。');
-                return;
-            }
-
-            const confirmed = confirm(`确定恢复 ${formatBackupTime(selectedBackup.createdAt)} 的备份吗？\n\n当前数据也会先自动保存一份，可以再次恢复。`);
-            if (!confirmed) return;
-
-            if (!createLocalBackup('恢复备份前')) return;
-            logsData = normalizeLogsData(selectedBackup.data);
-            saveToLocal();
-            renderHistoryList();
-
-            const sortedDates = Object.keys(logsData).sort((a, b) => new Date(b) - new Date(a));
-            const dateToLoad = logsData[currentDateStr] ? currentDateStr : sortedDates[0];
-            if (dateToLoad) loadLog(dateToLoad);
-
-            renderBackupList();
-            alert('✅ 已恢复选中的本地备份。');
-        });
-
         // 合并时按每一天的修改时间选择较新版本，并把所有内容冲突交给用户确认。
         function prepareCloudMerge(localSource, cloudSource) {
             const localData = normalizeLogsData(localSource);
@@ -1141,8 +999,6 @@
                     
                     const cloudData = JSON.parse(decodedContent);
                     if (Object.keys(cloudData).length > 0) {
-                        // 强制覆盖前先留一份完整快照，即使选错文件也能从本地恢复。
-                        if (!createLocalBackup('云端强制拉取前')) return;
                         logsData = normalizeLogsData(cloudData);
                         saveToLocal();
                         
@@ -1229,7 +1085,6 @@
                         return;
                     }
 
-                    if (!createLocalBackup('云端合并前')) return;
                     logsData = mergePlan.mergedData;
                     saveToLocal(); // 更新本地缓存
                     renderHistoryList(); // 刷新左侧列表
@@ -1301,7 +1156,6 @@
                 const badMatch = text.match(/🙄 需改进与糟心事:\n([\s\S]*)$/);
                 
                 if (goodMatch && badMatch) {
-                    if (!createLocalBackup('TXT 导入前')) return;
                     editorGood.value = goodMatch[1].trim() === '' ? '• ' : goodMatch[1];
                     editorBad.value = badMatch[1].trim() === '' ? '• ' : badMatch[1];
                     triggerAutoSave();

@@ -146,7 +146,7 @@
             className: safeName,
             root,
             roster: `${root}/roster.json`,
-            seat: `${root}/seat.json`,
+            seats: `${root}/seats`,
             votes: `${root}/votes`
         });
     }

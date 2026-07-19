@@ -445,35 +445,42 @@
         <div style="font-size: 18px; font-weight: bold; margin-bottom: 20px; color: #1a1c1e;">⚙️ 名单与云端同步</div>
         <div class="github-sync-area" style="margin-top:0; padding:0; background:transparent; box-shadow:none;">
             <div style="font-size: 14px; font-weight: 500; margin-bottom: 12px; color: #0061a4; text-align: center;">仅限超级大帅哥使用 😊</div>
-            <div class="github-sync-row" style="flex-direction: column; gap: 15px;">
-                <input type="password" id="github-token" placeholder="输入访问令牌 (Token)" onchange="saveTokenLocally()" style="width: 100%; box-sizing: border-box; max-width: none; border: 1px solid #c2c7cf;">
-                <div style="display:flex; gap:10px; width:100%;">
-                    <button class="btn-github-load" style="flex:1;" onclick="loadFromGitHubCloud()">☁️ 读取云端座位</button>
-                    <button class="btn-github-save" style="flex:1;" onclick="saveToGitHubCloud()">☁️ 保存云端座位</button>
-                </div>
+            <div class="github-sync-row" style="display:flex; gap:8px;">
+                <input type="password" id="github-token" placeholder="输入访问令牌（Token）" oninput="markTokenUnverified()" style="flex:1; min-width:0; box-sizing:border-box; max-width:none; border:1px solid #c2c7cf;">
+                <button class="btn-github-load" id="verifyTokenBtn" onclick="verifyGitHubToken()">核实 Token</button>
             </div>
-            <div style="font-size: 12px; color: #8e9196; margin-top:20px; text-align:center;">请使用仅能访问 Class-Data 的细粒度 Token；数据通过 HTTPS 传输。</div>
+            <div id="tokenVerifyStatus" style="font-size:12px; color:#8e9196; margin-top:10px; text-align:center;">请先核实 Token。</div>
             <div style="margin-top:18px; padding-top:16px; border-top:1px solid #e1e2e8;">
-                <div style="font-size:14px; font-weight:bold; margin-bottom:8px;">🏫 GitHub 班级名单</div>
+                <div style="font-size:14px; font-weight:bold; margin-bottom:8px;">🏫 保存班级名单</div>
                 <div style="display:flex; gap:8px; margin-bottom:8px;">
                     <input type="text" id="seatCloudClassName" placeholder="班级名称（如：一班）" style="flex:1; min-width:0; padding:10px; border:1px solid #c2c7cf; border-radius:8px;">
                     <button class="btn-github-save" onclick="saveCurrentRosterToGitHub()">保存当前名单</button>
                 </div>
-                <div style="font-size:12px; color:#8e9196; margin-bottom:12px;">先在页面导入名单，再选择是否保存到 GitHub。相同班级名称会更新原名单。</div>
+            </div>
+            <div style="margin-top:18px; padding-top:16px; border-top:1px solid #e1e2e8;">
+                <div style="font-size:14px; font-weight:bold; margin-bottom:8px;">📚 选择班级</div>
                 <div style="display:flex; gap:8px;">
                     <select id="seatClassSelector" aria-label="选择当前班级" style="flex:1; min-width:0; padding:10px; border:1px solid #c2c7cf; border-radius:8px;">
-                        <option value="">正在读取班级...</option>
+                        <option value="">请先核实 Token</option>
                     </select>
                     <button class="btn-github-load" onclick="refreshSeatClassSelector()" aria-label="刷新班级列表">刷新</button>
                 </div>
-                <button class="btn-github-load" onclick="applySelectedSeatClass()" style="width:100%; margin-top:8px;">读取并应用该班级</button>
+                <button class="btn-github-load" onclick="applySelectedSeatClass()" style="width:100%; margin-top:8px;">选择该班级</button>
                 <div id="seatClassStatus" style="font-size:12px; color:#8e9196; margin-top:7px;">当前使用本地名单，不关联 GitHub 班级。</div>
             </div>
             <div style="margin-top:18px; padding-top:16px; border-top:1px solid #e1e2e8;">
-                <div style="font-size:14px; font-weight:bold; margin-bottom:8px;">🛟 本地安全备份</div>
-                <div id="seatBackupHint" style="font-size:12px; color:#8e9196; margin-bottom:8px;">读取或重排前会自动保留最近 10 份座位表。</div>
-                <select id="seatBackupList" aria-label="选择要恢复的座位备份" style="width:100%; padding:10px; border:1px solid #c2c7cf; border-radius:8px; margin-bottom:10px;"><option value="">暂无本地备份</option></select>
-                <button class="btn-github-load" id="restoreSeatBackupBtn" onclick="restoreSeatBackup()" style="width:100%;">恢复选中的备份</button>
+                <div style="font-size:14px; font-weight:bold; margin-bottom:8px;">🗂️ 座位记录</div>
+                <div style="display:flex; gap:8px; margin-bottom:8px;">
+                    <input type="text" id="seatRecordName" placeholder="记录名称（如：第一次月考后）" style="flex:1; min-width:0; padding:10px; border:1px solid #c2c7cf; border-radius:8px;">
+                    <button class="btn-github-save" id="saveSeatRecordBtn" onclick="saveToGitHubCloud()">保存记录</button>
+                </div>
+                <div style="display:flex; gap:8px;">
+                    <select id="seatRecordSelector" aria-label="选择云端座位记录" style="flex:1; min-width:0; padding:10px; border:1px solid #c2c7cf; border-radius:8px;">
+                        <option value="">请先选择班级</option>
+                    </select>
+                    <button class="btn-github-load" onclick="refreshSeatRecordSelector()" aria-label="刷新座位记录">刷新</button>
+                </div>
+                <button class="btn-github-load" id="loadSeatRecordBtn" onclick="loadFromGitHubCloud()" style="width:100%; margin-top:8px;">读取选中记录</button>
             </div>
         </div>
     </div>
@@ -503,7 +510,8 @@
     const SEAT_CLASS_SELECTION_KEY = 'classSeatCurrentRoster';
     let currentClassListFile = ClassTools.loadCurrentStudentListFile(['seatCurrentClassListFile'], SEAT_CLASS_SELECTION_KEY);
     let currentRosterRevision = 0;
-    let currentSeatFileSha = null;
+    let currentSeatRecordPath = '';
+    let verifiedGitHubToken = '';
     
     let draggedElement = null;
     let activeBox = null, activeHandle = null, startX, startY, startRect;
@@ -523,9 +531,16 @@
     // === GitHub 同步参数配置 ===
     const GITHUB_OWNER = 'Dzreal'; 
     const GITHUB_REPO = 'Class-Data'; 
-    function getSeatDataFilePath(classListFile = currentClassListFile) {
+    function getSeatRecordsDirectory(classListFile = currentClassListFile) {
         const className = ClassTools.getClassNameFromRosterPath(classListFile);
-        return ClassTools.getClassDataPaths(className)?.seat || '';
+        return ClassTools.getClassDataPaths(className)?.seats || '';
+    }
+
+    function getSeatRecordPath(recordName, classListFile = currentClassListFile) {
+        const directory = getSeatRecordsDirectory(classListFile);
+        const safeName = String(recordName || '').trim().replace(/\.json$/i, '');
+        if (!directory || !ClassTools.validateCloudFileName(safeName)) return '';
+        return `${directory}/${safeName}.json`;
     }
 
     window.onload = async function() {
@@ -536,19 +551,65 @@
         setCurrentClassListFile(currentClassListFile);
         renderSeatBackupList();
         updateUndoButton();
-        if (savedToken && currentClassListFile) await loadCurrentRosterSilently(savedToken);
         updateSeatRosterStatus();
     };
 
     async function openSeatSettings() {
         document.getElementById('tokenModal').classList.remove('hidden');
-        await refreshSeatClassSelector(true);
+        if (verifiedGitHubToken) {
+            await refreshSeatClassSelector(true);
+            await refreshSeatRecordSelector(true);
+        }
     }
 
     function saveTokenLocally() {
-        let token = document.getElementById('github-token').value.trim();
+        const token = document.getElementById('github-token').value.trim();
         ClassTools.saveGitHubToken(token);
-        if (token) refreshSeatClassSelector(true);
+    }
+
+    function markTokenUnverified() {
+        verifiedGitHubToken = '';
+        const status = document.getElementById('tokenVerifyStatus');
+        status.textContent = 'Token 已改变，请重新核实。';
+        status.style.color = '#8e9196';
+    }
+
+    function requireVerifiedToken() {
+        const token = document.getElementById('github-token').value.trim();
+        if (!token || token !== verifiedGitHubToken) {
+            alert('请先核实 Token。');
+            return '';
+        }
+        return token;
+    }
+
+    async function verifyGitHubToken() {
+        const token = document.getElementById('github-token').value.trim();
+        if (!token) { alert('请先输入 Token。'); return; }
+        const button = document.getElementById('verifyTokenBtn');
+        const status = document.getElementById('tokenVerifyStatus');
+        button.disabled = true;
+        button.textContent = '正在核实...';
+        try {
+            const response = await fetch(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}`, {
+                headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/vnd.github.v3+json' },
+                cache: 'no-store'
+            });
+            if (!response.ok) throw new Error('Token 无效或无权访问 Class-Data');
+            verifiedGitHubToken = token;
+            saveTokenLocally();
+            status.textContent = '✅ Token 已核实，可以访问 Class-Data。';
+            status.style.color = '#187a3b';
+            await refreshSeatClassSelector(true);
+            await refreshSeatRecordSelector(true);
+        } catch (error) {
+            verifiedGitHubToken = '';
+            status.textContent = '❌ ' + error.message;
+            status.style.color = '#b3261e';
+        } finally {
+            button.disabled = false;
+            button.textContent = '核实 Token';
+        }
     }
 
     function encodeUTF8ToBase64(str) {
@@ -564,7 +625,7 @@
         }).join(''));
     }
 
-    // 每个班级目录下分别保存 roster.json 与 seat.json。
+    // 每个班级目录下保存一份 roster.json，以及多条 seats/*.json 座位记录。
     async function getGitHubJsonFile(token, path, includeMetadata = false) {
         const safePath = ClassTools.encodeGitHubPath(path);
         const response = await fetch(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${safePath}`, {
@@ -613,6 +674,18 @@
         return data.filter(item => item.type === 'dir').map(item => item.name);
     }
 
+    async function listGitHubFiles(token, directory) {
+        const safePath = ClassTools.encodeGitHubPath(directory);
+        const response = await fetch(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${safePath}`, {
+            headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/vnd.github.v3+json' },
+            cache: 'no-store'
+        });
+        if (response.status === 404) return [];
+        if (!response.ok) throw new Error('读取记录列表失败');
+        const data = await response.json();
+        return data.filter(item => item.type === 'file' && item.name.endsWith('.json')).map(item => item.name);
+    }
+
     function getStudentReference(studentElement) {
         return studentElement?.dataset?.studentId || studentElement?.id || '';
     }
@@ -625,13 +698,16 @@
     }
 
     async function saveToGitHubCloud() {
-        let token = document.getElementById('github-token').value.trim();
-        if (!token) { alert('⚠️ 请先输入 Token！'); return; }
-
-        saveTokenLocally();
-
+        const token = requireVerifiedToken();
+        if (!token) return;
+        const recordName = document.getElementById('seatRecordName').value.trim();
         if (studentsData.length === 0) { alert('当前没有数据可保存！'); return; }
-        if (!getSeatDataFilePath()) { alert('请先在设置中选择班级。'); return; }
+        if (!currentClassListFile || !currentRosterRevision) { alert('请先选择班级。'); return; }
+        if (!ClassTools.validateCloudFileName(recordName)) {
+            alert('记录名称不能超过 60 个字，也不能包含 \\ / : * ? " < > | # % 等符号。');
+            return;
+        }
+        const seatDataPath = getSeatRecordPath(recordName);
 
         try {
             const latestRoster = await getGitHubJsonFile(token, currentClassListFile);
@@ -645,7 +721,7 @@
             return;
         }
 
-        let exportData = {
+        const exportData = {
             schemaVersion: 3,
             updatedAt: Date.now(),
             classId: ClassTools.getClassNameFromRosterPath(currentClassListFile),
@@ -668,69 +744,57 @@
             if (seat.children.length > 0) exportData.layout[seat.id] = getStudentReference(seat.children[0]);
         });
 
-        let jsonString = JSON.stringify(exportData);
-        let base64Content = encodeUTF8ToBase64(jsonString);
-
+        const button = document.getElementById('saveSeatRecordBtn');
         try {
-            document.querySelector('.btn-github-save').innerText = '正在保存...';
-            const seatDataPath = getSeatDataFilePath();
-            let url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${ClassTools.encodeGitHubPath(seatDataPath)}`;
-            let bodyData = {
-                message: "Cloud save seat data to Private Repo",
-                content: base64Content
-            };
-            if (currentSeatFileSha) bodyData.sha = currentSeatFileSha;
-
-            let response = await fetch(url, {
-                method: 'PUT',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Accept': 'application/vnd.github.v3+json',
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(bodyData)
-            });
-
-            if (response.ok) {
-                const savedFile = await response.json();
-                currentSeatFileSha = savedFile.content?.sha || currentSeatFileSha;
-                alert('✅ 成功保存至云端私有仓库！');
-            } else {
-                let errData = await response.json();
-                if (response.status === 409 || response.status === 422) {
-                    alert('云端座位数据已经更新，请先从云端重新读取后再保存。');
-                } else {
-                    alert('❌ 保存失败：' + (errData.message || '请确保Token填写正确，且拥有写入私有仓库的权限。'));
-                }
-            }
-        } catch (e) {
-            alert('网络错误：无法连接到云端。如果你在国内，通常是因为网络拦截了接口 (api.github.com)，建议开启加速器后重试。\n详细报错：' + e.message);
+            button.disabled = true;
+            button.textContent = '正在保存...';
+            const existingFile = await getGitHubJsonFile(token, seatDataPath, true);
+            if (existingFile && !confirm(`座位记录“${recordName}”已经存在，确定覆盖吗？`)) return;
+            await putGitHubJsonFile(
+                token,
+                seatDataPath,
+                exportData,
+                existingFile ? `Update seat record ${recordName}` : `Create seat record ${recordName}`,
+                existingFile?.sha || null
+            );
+            currentSeatRecordPath = seatDataPath;
+            await refreshSeatRecordSelector(true);
+            document.getElementById('seatRecordSelector').value = `${recordName}.json`;
+            alert(`✅ 座位记录“${recordName}”已保存。`);
+        } catch (error) {
+            alert('保存座位记录失败：' + error.message);
         } finally {
-            document.querySelector('.btn-github-save').innerText = '☁️ 保存云端座位';
+            button.disabled = false;
+            button.textContent = '保存记录';
         }
     }
 
     async function loadFromGitHubCloud() {
-        let token = document.getElementById('github-token').value.trim();
-        if (!token) { alert('⚠️ 请先输入 Token！'); return; }
-        
-        saveTokenLocally();
-
+        const token = requireVerifiedToken();
+        if (!token) return;
+        const fileName = document.getElementById('seatRecordSelector').value;
+        if (!currentClassListFile || !currentRosterRevision) { alert('请先选择班级。'); return; }
+        if (!fileName) { alert('请先选择座位记录。'); return; }
+        const seatDataPath = `${getSeatRecordsDirectory()}/${fileName}`;
+        const button = document.getElementById('loadSeatRecordBtn');
         try {
-            document.querySelector('.btn-github-load').innerText = '正在读取...';
-            const cloudFile = await getGitHubJsonFile(token, getSeatDataFilePath(), true);
+            button.disabled = true;
+            button.textContent = '正在读取...';
+            const cloudFile = await getGitHubJsonFile(token, seatDataPath, true);
             if (cloudFile) {
-                currentSeatFileSha = cloudFile.sha;
+                currentSeatRecordPath = seatDataPath;
                 if (applyCloudSeatData(cloudFile.content) !== false) {
-                    alert('✅ 已从云端读取并完美还原排座！');
+                    document.getElementById('seatRecordName').value = fileName.replace(/\.json$/i, '');
+                    alert(`✅ 已读取座位记录“${fileName.replace(/\.json$/i, '')}”。`);
                 }
             } else {
-                alert('❌ 读取失败，可能是云端还没有保存过数据，或者私有仓库名字没有对应上。');
+                alert('座位记录不存在。');
             }
-        } catch (e) {
-            alert('网络错误：无法连接到云端。如果你在国内，通常是因为网络拦截了接口 (api.github.com)，建议开启加速器后重试。\n详细报错：' + e.message);
+        } catch (error) {
+            alert('读取座位记录失败：' + error.message);
         } finally {
-            document.querySelector('.btn-github-load').innerText = '☁️ 读取云端座位';
+            button.disabled = false;
+            button.textContent = '读取选中记录';
         }
     }
 
@@ -751,9 +815,9 @@
     }
 
     async function saveCurrentRosterToGitHub() {
-        const token = document.getElementById('github-token').value.trim();
+        const token = requireVerifiedToken();
+        if (!token) return;
         const className = document.getElementById('seatCloudClassName').value.trim();
-        if (!token) { alert('⚠️ 请先输入 Token！'); return; }
         if (studentsData.length === 0) { alert('请先在座位页导入学生名单。'); return; }
         if (!ClassTools.validateCloudFileName(className)) {
             alert('班级名称不能超过 60 个字，也不能包含 \\ / : * ? " < > | # % 等符号。');
@@ -780,11 +844,11 @@
             );
             setCurrentClassListFile(paths.roster);
             currentRosterRevision = classDocument.updatedAt;
-            const seatFile = await getGitHubJsonFile(token, paths.seat, true);
-            currentSeatFileSha = seatFile?.sha || null;
+            currentSeatRecordPath = '';
             updateSeatRosterStatus();
             await refreshSeatClassSelector(true);
             document.getElementById('seatClassSelector').value = className;
+            await refreshSeatRecordSelector(true);
             alert(`✅ 班级“${className}”名单已保存到 GitHub，投票页现在可以直接读取。`);
         } catch (error) {
             alert('保存班级名单失败：' + error.message);
@@ -806,15 +870,16 @@
         if (!Array.isArray(seatData?.studentsData)) throw new Error('本地座位文件缺少学生名单');
         setCurrentClassListFile('');
         currentRosterRevision = 0;
-        currentSeatFileSha = null;
+        currentSeatRecordPath = '';
         return applyImportedData({ ...seatData, classListFile: '' }, skipSafetyBackup);
     }
 
     async function refreshSeatClassSelector(silent = false) {
         const select = document.getElementById('seatClassSelector');
-        const token = document.getElementById('github-token').value.trim();
+        const token = verifiedGitHubToken;
         if (!token) {
-            select.innerHTML = '<option value="">请先填写 Token</option>';
+            select.innerHTML = '<option value="">请先核实 Token</option>';
+            if (!silent) alert('请先核实 Token。');
             return;
         }
         select.innerHTML = '<option value="">正在读取班级...</option>';
@@ -835,10 +900,43 @@
         }
     }
 
+    async function refreshSeatRecordSelector(silent = false) {
+        const select = document.getElementById('seatRecordSelector');
+        const token = verifiedGitHubToken;
+        const directory = getSeatRecordsDirectory();
+        if (!token) {
+            select.innerHTML = '<option value="">请先核实 Token</option>';
+            if (!silent) alert('请先核实 Token。');
+            return;
+        }
+        if (!directory || !currentRosterRevision) {
+            select.innerHTML = '<option value="">请先选择班级</option>';
+            return;
+        }
+        select.innerHTML = '<option value="">正在读取记录...</option>';
+        try {
+            const files = await listGitHubFiles(token, directory);
+            select.innerHTML = '<option value="">请选择座位记录...</option>';
+            files.forEach(fileName => {
+                const option = document.createElement('option');
+                option.value = fileName;
+                option.textContent = fileName.replace(/\.json$/i, '');
+                select.appendChild(option);
+            });
+            const currentFileName = currentSeatRecordPath.startsWith(`${directory}/`)
+                ? currentSeatRecordPath.slice(directory.length + 1)
+                : '';
+            if (files.includes(currentFileName)) select.value = currentFileName;
+        } catch (error) {
+            select.innerHTML = '<option value="">记录读取失败</option>';
+            if (!silent) alert('读取座位记录失败：' + error.message);
+        }
+    }
+
     async function applySelectedSeatClass() {
-        const token = document.getElementById('github-token').value.trim();
+        const token = requireVerifiedToken();
+        if (!token) return;
         const fileName = document.getElementById('seatClassSelector').value;
-        if (!token) { alert('⚠️ 请先输入 Token！'); return; }
         if (!fileName) { alert('请先选择班级。'); return; }
 
         const filePath = ClassTools.getClassDataPaths(fileName).roster;
@@ -854,25 +952,17 @@
             if (!backupCurrentSeatState('切换班级前')) return;
             setCurrentClassListFile(filePath);
             currentRosterRevision = classDocument.updatedAt;
-
-            const seatFile = await getGitHubJsonFile(token, getSeatDataFilePath(filePath), true);
-            const seatData = seatFile?.content || null;
-            currentSeatFileSha = seatFile?.sha || null;
-
-            if (seatData) {
-                studentsData = rosterStudents;
-                applyCloudSeatData(seatData, true);
-            } else {
-                const currentState = collectCurrentSeatState();
-                applyImportedData({
-                    ...currentState,
-                    classListFile: filePath,
-                    studentsData: rosterStudents,
-                    layout: {}
-                }, true);
-            }
+            currentSeatRecordPath = '';
+            const currentState = collectCurrentSeatState();
+            applyImportedData({
+                ...currentState,
+                classListFile: filePath,
+                studentsData: rosterStudents,
+                layout: {}
+            }, true);
             document.getElementById('seatCloudClassName').value = fileName;
             updateSeatRosterStatus();
+            await refreshSeatRecordSelector(true);
         } catch (error) {
             alert('读取班级失败：' + error.message);
         }
@@ -888,10 +978,8 @@
             if (rosterStudents.some(student => !student.gender)) return;
             studentsData = rosterStudents;
             currentRosterRevision = classDocument.updatedAt;
-            const seatFile = await getGitHubJsonFile(token, getSeatDataFilePath(), true);
-            currentSeatFileSha = seatFile?.sha || null;
-            if (seatFile?.content) applyCloudSeatData(seatFile.content, true);
-            else renderStudents();
+            currentSeatRecordPath = '';
+            renderStudents();
         } catch (error) {
             console.warn('当前学生名单暂时无法自动读取。', error);
         }
@@ -959,34 +1047,6 @@
     }
 
     function renderSeatBackupList() {
-        const select = document.getElementById('seatBackupList');
-        const hint = document.getElementById('seatBackupHint');
-        const restoreButton = document.getElementById('restoreSeatBackupBtn');
-        if (!select || !hint || !restoreButton) return;
-
-        const backups = seatBackupManager.list();
-        select.innerHTML = '';
-        if (backups.length === 0) {
-            const option = document.createElement('option');
-            option.value = '';
-            option.textContent = '暂无本地备份';
-            select.appendChild(option);
-            select.disabled = true;
-            restoreButton.disabled = true;
-            hint.textContent = '读取或重排前会自动保留最近 10 份座位表。';
-            updateUndoButton();
-            return;
-        }
-
-        backups.forEach(backup => {
-            const option = document.createElement('option');
-            option.value = backup.id;
-            option.textContent = `${new Date(backup.createdAt).toLocaleString('zh-CN', { hour12: false })} · ${backup.reason}`;
-            select.appendChild(option);
-        });
-        select.disabled = false;
-        restoreButton.disabled = false;
-        hint.textContent = `当前有 ${backups.length} 份快照，最多保留 ${seatBackupManager.maxBackups} 份。`;
         updateUndoButton();
     }
 
@@ -1014,16 +1074,6 @@
         } catch (error) {
             alert('撤销失败：' + error.message);
         }
-    }
-
-    function restoreSeatBackup() {
-        const backup = seatBackupManager.get(document.getElementById('seatBackupList').value);
-        if (!backup) { alert('没有找到选中的座位备份。'); return; }
-        if (!confirm('确定恢复这份座位表吗？当前座位也会先自动备份。')) return;
-        if (!backupCurrentSeatState('恢复座位备份前')) return;
-        applyImportedData(backup.data, true);
-        renderSeatBackupList();
-        alert('✅ 已恢复选中的座位备份。');
     }
 
     function applyImportedData(importedData, skipSafetyBackup = false) {
@@ -1145,7 +1195,7 @@
                 studentsData = ClassTools.normalizeStudentList(importedStudents);
                 setCurrentClassListFile('');
                 currentRosterRevision = 0;
-                currentSeatFileSha = null;
+                currentSeatRecordPath = '';
                 renderStudents();
                 updateSeatRosterStatus();
                 alert(`✅ 导入成功：共读取到 ${studentsData.length} 名学生！`);

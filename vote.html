@@ -240,12 +240,6 @@
                     <button class="action-btn danger" onclick="clearLocalVotes()" style="margin-top: 10px;">清空本地投票 (不影响云端)</button>
                 </div>
 
-                <div class="config-section">
-                    <h3>4. 本地安全备份</h3>
-                    <p id="voteBackupHint" style="font-size:13px; color:#444746; line-height:1.5;">危险操作前会自动保存最近 10 份工作区。</p>
-                    <select id="voteBackupList" aria-label="选择要恢复的投票备份"><option value="">暂无本地备份</option></select>
-                    <button class="action-btn secondary" id="restoreVoteBackupBtn" onclick="restoreVoteBackup()">恢复选中的备份</button>
-                </div>
             </div>
         </div>
     </div>
@@ -281,7 +275,6 @@
         // 核心数据 (兼容老数据: rule, limit 字段)
         let appData = { students: [], questions: [], votes: [] };
         let editingQuestionId = null; 
-        const voteBackupManager = ClassTools.createJsonBackupManager('classVoteBackups', 10);
         const VOTE_CLASS_SELECTION_KEY = 'classVoteCurrentRoster';
 
         function getCurrentClassName() {
@@ -330,63 +323,6 @@
                         })
                     : []
             };
-        }
-
-        function backupVoteWorkspace(reason) {
-            const result = voteBackupManager.snapshot(appData, reason);
-            if (!result.ok) {
-                alert('⚠️ 本地存储空间不足，无法创建安全备份。为防止数据丢失，本次操作已经停止。');
-                return false;
-            }
-            renderVoteBackupList();
-            return true;
-        }
-
-        function renderVoteBackupList() {
-            const select = document.getElementById('voteBackupList');
-            const hint = document.getElementById('voteBackupHint');
-            const restoreButton = document.getElementById('restoreVoteBackupBtn');
-            if (!select || !hint || !restoreButton) return;
-
-            const backups = voteBackupManager.list();
-            select.innerHTML = '';
-            if (backups.length === 0) {
-                const option = document.createElement('option');
-                option.value = '';
-                option.textContent = '暂无本地备份';
-                select.appendChild(option);
-                select.disabled = true;
-                restoreButton.disabled = true;
-                hint.textContent = '危险操作前会自动保存最近 10 份工作区。';
-                return;
-            }
-
-            backups.forEach(backup => {
-                const option = document.createElement('option');
-                option.value = backup.id;
-                option.textContent = `${new Date(backup.createdAt).toLocaleString('zh-CN', { hour12: false })} · ${backup.reason}`;
-                select.appendChild(option);
-            });
-            select.disabled = false;
-            restoreButton.disabled = false;
-            hint.textContent = `当前有 ${backups.length} 份本地快照，最多保留 ${voteBackupManager.maxBackups} 份。`;
-        }
-
-        function restoreVoteBackup() {
-            const selectedId = document.getElementById('voteBackupList').value;
-            const backup = voteBackupManager.get(selectedId);
-            if (!backup) { alert('没有找到选中的备份。'); return; }
-            if (!confirm('确定恢复这份投票工作区吗？当前内容会先自动备份。')) return;
-            if (!backupVoteWorkspace('恢复投票备份前')) return;
-
-            appData = normalizeVoteData(backup.data);
-            saveToLocal();
-            updateClassStatus();
-            renderQuestionList();
-            renderVotingInterface();
-            renderStudentDropdown();
-            renderVoteBackupList();
-            alert('✅ 已恢复选中的投票备份。');
         }
 
         // ------------------ GitHub API 交互封装 ------------------
@@ -541,7 +477,6 @@
             renderVotingInterface();
             updateClassStatus();
             renderStudentDropdown();
-            renderVoteBackupList();
         };
 
         function toggleSidebar(btn) { 
@@ -730,7 +665,6 @@
             const data = await GitHub.getFile(classListFile);
             const classDocument = ClassTools.normalizeStudentListDocument(data, fileName.replace('.json', ''));
             if(classDocument.students.length > 0) {
-                if (!backupVoteWorkspace('读取新班级名单前')) return;
                 appData = normalizeVoteData({
                     ...appData,
                     students: classDocument.students,
@@ -791,7 +725,6 @@
             const htmlType = (rule === 'radio') ? 'radio' : 'checkbox';
 
             if (editingQuestionId) {
-                if (!backupVoteWorkspace('修改题目前')) return;
                 const q = appData.questions.find(q => q.id === editingQuestionId);
                 if (q) { 
                     q.title = title; 
@@ -836,7 +769,6 @@
 
         function deleteSingleQuestion(qId) {
             if (confirm("确定删除该题？统计时将被忽略。")) {
-                if (!backupVoteWorkspace('删除题目前')) return;
                 appData.questions = appData.questions.filter(q => q.id !== qId);
                 saveToLocal(); renderQuestionList(); renderVotingInterface();
                 if (editingQuestionId === qId) cancelEdit();
@@ -845,7 +777,6 @@
 
         function clearQuestions() {
             if (confirm("清空所有题目？不会删除现有记录数据。")) {
-                if (!backupVoteWorkspace('清空题目前')) return;
                 appData.questions = [];
                 saveToLocal(); renderQuestionList(); renderVotingInterface(); cancelEdit();
             }
@@ -952,7 +883,6 @@
             const data = await GitHub.getFile(`${getCurrentVoteDirectory()}/${fileName}`);
             if(data && data.questions) { 
                 if (data.classId !== getCurrentClassName()) { alert('该记录不属于当前班级。'); return; }
-                if (!backupVoteWorkspace('读取云端投票记录前')) return;
                 appData = normalizeVoteData({
                     ...data,
                     students: appData.students,
@@ -976,7 +906,6 @@
 
         function clearLocalVotes() {
             if (confirm("确定要清空目前工作区的投票结果吗？（只要不覆盖保存，云端的备份不受影响）")) {
-                if (!backupVoteWorkspace('清空本地投票前')) return;
                 appData.votes = [];
                 saveToLocal(); 
                 renderStudentDropdown(); 
