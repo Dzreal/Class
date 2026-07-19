@@ -176,12 +176,7 @@
                 <div class="config-section">
                     <h3>1. 选择班级名单</h3>
                     <p style="font-size: 13px; color:#444746; margin-bottom: 8px;">班级名单由座位页创建和更新；投票页只负责读取。</p>
-                    <div style="display: flex; gap: 10px; align-items: center;">
-                        <select id="cloudClassList" style="flex: 1;"><option value="">请选择班级...</option></select>
-                        <button class="action-btn secondary small-btn" style="width: auto;" onclick="refreshCloudClasses()">🔄 获取</button>
-                    </div>
-                    
-                    <button class="action-btn" onclick="loadCloudClass()" style="margin-top: 5px;">读取并应用该名单</button>
+                    <select id="cloudClassList" onchange="applySelectedVoteClass()"><option value="">解锁后自动读取班级...</option></select>
 
                     <p id="cloudLoadStatus" style="font-size: 13px; color: #0b57d0; margin-top: 5px; margin-bottom: 0; font-weight: bold;"></p>
                     
@@ -226,10 +221,7 @@
                     <hr style="border:0; border-top:1px dashed #c4c7c5; margin:15px 0;">
                     
                     <p style="font-size: 13px; color:#0b57d0; font-weight:bold; margin-bottom: 5px;">【读取与管理历史记录】</p>
-                    <div style="display: flex; gap: 10px; align-items: center;">
-                        <select id="cloudRecordList" style="flex: 1;"><option value="">请选择云端记录...</option></select>
-                        <button class="action-btn secondary small-btn" style="width: auto;" onclick="refreshCloudRecords()">🔄 获取</button>
-                    </div>
+                    <select id="cloudRecordList"><option value="">请先选择班级...</option></select>
                     <div style="display: flex; gap: 10px; margin-top: 5px;">
                         <button class="action-btn secondary" onclick="loadCloudRecord()">下载恢复</button>
                         <button class="action-btn danger" onclick="deleteCloudRecord()">彻底删除</button>
@@ -529,6 +521,7 @@
                 document.getElementById('configView').classList.remove('hidden');
                 document.getElementById('adminPwd').value = ''; 
                 initConfigBigScreenBtn(); 
+                await refreshCloudClasses();
             } else { 
                 alert("密码错误！"); 
             }
@@ -648,35 +641,51 @@
                 select.appendChild(opt);
             });
             const currentClassName = getCurrentClassName();
-            if (files.includes(currentClassName)) select.value = currentClassName;
+            if (files.includes(currentClassName)) {
+                select.value = currentClassName;
+                await refreshCloudRecords();
+            } else {
+                select.value = '';
+                document.getElementById('cloudRecordList').innerHTML = '<option value="">请先选择班级</option>';
+            }
         }
 
-        async function loadCloudClass() {
-            const fileName = document.getElementById('cloudClassList').value;
-            if(!fileName) { alert('请先在下拉框选择名单'); return; }
+        async function applySelectedVoteClass() {
+            const select = document.getElementById('cloudClassList');
+            const fileName = select.value;
+            const previousClassName = getCurrentClassName();
+            if(!fileName) {
+                select.value = previousClassName;
+                return;
+            }
             
-            if (appData.votes.length > 0) {
+            if (appData.votes.length > 0 && fileName !== previousClassName) {
                 if (!confirm("⚠️ 注意：载入新的班级名单将会清空当前正在进行的投票记录！\n如果你还需要当前的投票数据，请先点击【取消】并将其保存到云端。\n确定要清空并载入新名单吗？")) {
+                    select.value = previousClassName;
                     return;
                 }
             }
 
-            const classListFile = ClassTools.getClassDataPaths(fileName).roster;
-            const data = await GitHub.getFile(classListFile);
-            const classDocument = ClassTools.normalizeStudentListDocument(data, fileName.replace('.json', ''));
-            if(classDocument.students.length > 0) {
+            try {
+                const classListFile = ClassTools.getClassDataPaths(fileName).roster;
+                const data = await GitHub.getFile(classListFile);
+                const classDocument = ClassTools.normalizeStudentListDocument(data, fileName);
+                if(classDocument.students.length === 0) throw new Error('班级名单为空');
                 appData = normalizeVoteData({
                     ...appData,
                     students: classDocument.students,
-                    votes: [],
+                    votes: fileName === previousClassName ? appData.votes : [],
                     classListFile,
                     rosterRevision: classDocument.updatedAt,
                     updatedAt: classDocument.updatedAt || Date.now()
                 });
                 saveToLocal(); updateClassStatus();
                 renderStudentDropdown();
-                document.getElementById('cloudLoadStatus').innerText = `已读取到“${fileName.replace('.json', '')}”共${classDocument.students.length}人`;
-                alert(`✅ 成功从云端读取名单: ${fileName.replace('.json', '')}`);
+                document.getElementById('cloudLoadStatus').innerText = `当前班级：“${fileName}”，共 ${classDocument.students.length} 人`;
+                await refreshCloudRecords();
+            } catch (error) {
+                select.value = previousClassName;
+                alert('读取班级失败：' + error.message);
             }
         }
 

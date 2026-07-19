@@ -571,11 +571,17 @@
             <div class="github-settings" style="margin-top:0; padding:0; background:transparent; border-radius:0;">
                 <strong style="font-size: 18px; color: #1a1c1e; margin-bottom: 15px; display: block;">⚙️ 云端私有库同步配置</strong>
                 <label style="margin-top:8px;">访问令牌 (Token):</label>
-                <input type="password" id="ghToken" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx">
-                <label>文件保存路径 (可区分不同班级):</label>
-                <input type="text" id="ghPath" placeholder="六4.json" value="六4.json">
-                <button class="btn-pull" id="btnPull" style="margin-top: 20px;">⬇️ 强制从云端拉取 (覆盖本地)</button>
-                <button class="btn-push" id="btnPushCloud" style="margin-top: 10px;">☁️ 保存至云端</button>
+                <div style="display:flex; gap:8px;">
+                    <input type="password" id="ghToken" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" oninput="markJournalTokenUnverified()" style="flex:1; min-width:0;">
+                    <button class="btn-pull" id="btnVerifyToken" onclick="verifyJournalToken()" style="width:auto; margin:0; white-space:nowrap;">核实 Token</button>
+                </div>
+                <div id="journalTokenStatus" style="font-size:12px; color:#8e9196; margin:8px 0 16px; text-align:center;">请先核实 Token。</div>
+                <label>选择班级:</label>
+                <select id="journalClassSelector" onchange="applySelectedJournalClass()">
+                    <option value="">请先核实 Token</option>
+                </select>
+                <button class="btn-pull" id="btnPull" style="margin-top: 20px;">⬇️ 读取该班日志</button>
+                <button class="btn-push" id="btnPushCloud" style="margin-top: 10px;">☁️ 保存该班日志</button>
             </div>
         </div>
     </div>
@@ -586,10 +592,18 @@
         const GITHUB_REPO = 'Class-Data';   
         // =========================================================================
 
-        // 本地数据损坏时不让整个页面停止运行，后续仍可从备份或云端恢复。
-        function readLocalLogs() {
+        const JOURNAL_CLASS_SELECTION_KEY = 'classJournalCurrentClass';
+        let currentJournalClass = localStorage.getItem(JOURNAL_CLASS_SELECTION_KEY) || '';
+        let verifiedJournalToken = '';
+
+        function getJournalLocalStorageKey(className = currentJournalClass) {
+            return className ? `classLogsData:${className}` : 'classLogsData';
+        }
+
+        // 每个班级使用独立本地空间；尚未选择班级时仍可纯本地使用。
+        function readLocalLogs(className = currentJournalClass) {
             try {
-                return JSON.parse(localStorage.getItem('classLogsData')) || {};
+                return JSON.parse(localStorage.getItem(getJournalLocalStorageKey(className))) || {};
             } catch (error) {
                 console.error('本地班级日志格式损坏，已使用空数据启动。', error);
                 return {};
@@ -612,7 +626,6 @@
         const weatherIcons = document.querySelectorAll('.weather-icon');
         const statusMsg = document.getElementById('statusMsg');
         const ghTokenInput = document.getElementById('ghToken');
-        const ghPathInput = document.getElementById('ghPath');
 
         const bindingStr = Array(18).fill('<div class="ring"></div>').join('');
         document.getElementById('binding').innerHTML = bindingStr;
@@ -841,7 +854,7 @@
 
         function saveToLocal() {
             try {
-                localStorage.setItem('classLogsData', JSON.stringify(logsData));
+                localStorage.setItem(getJournalLocalStorageKey(), JSON.stringify(logsData));
                 hasShownLocalSaveError = false;
                 return true;
             } catch (error) {
@@ -956,25 +969,123 @@
 
         function loadGitHubConfig() {
             ghTokenInput.value = ClassTools.loadGitHubToken(['gh_token']);
-            ghPathInput.value = localStorage.getItem('gh_path') || '六4.json';
         }
 
         function saveGitHubConfig() {
             ClassTools.saveGitHubToken(ghTokenInput.value.trim());
-            localStorage.setItem('gh_path', ghPathInput.value.trim());
+        }
+
+        function markJournalTokenUnverified() {
+            verifiedJournalToken = '';
+            const status = document.getElementById('journalTokenStatus');
+            status.textContent = 'Token 已变更，请重新核实。';
+            status.style.color = '#8e9196';
+            document.getElementById('journalClassSelector').innerHTML = '<option value="">请先核实 Token</option>';
+        }
+
+        async function verifyJournalToken() {
+            const token = ghTokenInput.value.trim();
+            if (!token) { alert('请先输入 Token。'); return; }
+            const button = document.getElementById('btnVerifyToken');
+            const status = document.getElementById('journalTokenStatus');
+            button.disabled = true;
+            button.textContent = '正在核实...';
+            try {
+                const response = await fetch(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}`, {
+                    headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/vnd.github.v3+json' },
+                    cache: 'no-store'
+                });
+                if (!response.ok) throw new Error('Token 无效或无权访问 Class-Data');
+                verifiedJournalToken = token;
+                saveGitHubConfig();
+                status.textContent = '✅ Token 已核实，可以访问 Class-Data。';
+                status.style.color = '#187a3b';
+                await refreshJournalClasses();
+            } catch (error) {
+                verifiedJournalToken = '';
+                status.textContent = '❌ ' + error.message;
+                status.style.color = '#b3261e';
+            } finally {
+                button.disabled = false;
+                button.textContent = '核实 Token';
+            }
+        }
+
+        async function refreshJournalClasses() {
+            const select = document.getElementById('journalClassSelector');
+            if (!verifiedJournalToken) {
+                select.innerHTML = '<option value="">请先核实 Token</option>';
+                return;
+            }
+            select.innerHTML = '<option value="">正在读取班级...</option>';
+            const response = await fetch(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/classes`, {
+                headers: { 'Authorization': `Bearer ${verifiedJournalToken}`, 'Accept': 'application/vnd.github.v3+json' },
+                cache: 'no-store'
+            });
+            if (!response.ok) {
+                select.innerHTML = '<option value="">班级读取失败</option>';
+                throw new Error('无法读取班级列表');
+            }
+            const entries = await response.json();
+            const classes = entries.filter(item => item.type === 'dir').map(item => item.name);
+            select.innerHTML = '<option value="">请选择班级...</option>';
+            classes.forEach(className => {
+                const option = document.createElement('option');
+                option.value = className;
+                option.textContent = className;
+                select.appendChild(option);
+            });
+            if (classes.includes(currentJournalClass)) select.value = currentJournalClass;
+        }
+
+        function applySelectedJournalClass() {
+            const select = document.getElementById('journalClassSelector');
+            const nextClass = select.value;
+            if (!nextClass || nextClass === currentJournalClass) return;
+
+            triggerAutoSave();
+            const previousClass = currentJournalClass;
+            const previousLogs = logsData;
+            currentJournalClass = nextClass;
+            localStorage.setItem(JOURNAL_CLASS_SELECTION_KEY, nextClass);
+
+            const nextStorageKey = getJournalLocalStorageKey(nextClass);
+            if (!previousClass && localStorage.getItem(nextStorageKey) === null) {
+                logsData = previousLogs;
+                saveToLocal();
+            } else {
+                logsData = normalizeLogsData(readLocalLogs(nextClass));
+            }
+
+            const todayStr = getFormattedDate(new Date());
+            ensureLogExists(todayStr);
+            renderHistoryList();
+            loadLog(todayStr);
+            showStatus(`已切换到 ${nextClass}`);
+        }
+
+        function getCurrentJournalPath() {
+            const selectedClass = document.getElementById('journalClassSelector').value;
+            return ClassTools.getClassDataPaths(selectedClass)?.journal || '';
+        }
+
+        function createJournalDocument(data) {
+            return {
+                schemaVersion: 3,
+                classId: currentJournalClass,
+                updatedAt: Date.now(),
+                logs: normalizeLogsData(data)
+            };
         }
 
         // --- 纯手动拉取/覆盖数据逻辑 ---
         document.getElementById('btnPull').addEventListener('click', async () => {
             saveGitHubConfig();
-            const token = ghTokenInput.value.trim();
-            const path = ghPathInput.value.trim();
+            const token = verifiedJournalToken;
+            const path = getCurrentJournalPath();
 
             if (!token || !path) {
-                alert('请先填写访问令牌(Token)和保存路径！'); return;
-            }
-            if (!ClassTools.validateGitHubRelativePath(path)) {
-                alert('保存路径格式不正确。请使用类似“六4.json”或“日志/六4.json”的相对路径，不要包含特殊符号。'); return;
+                alert('请先核实 Token 并选择班级。'); return;
             }
 
             const confirmPull = confirm('⚠️ 警告：此操作将会用云端的数据【强制覆盖】你当前浏览器内的所有记录。请确认你真的想丢弃本地未同步的修改，或者你正在一台全新设备上。');
@@ -998,8 +1109,11 @@
                     const decodedContent = b64_to_utf8(fileData.content);
                     
                     const cloudData = JSON.parse(decodedContent);
-                    if (Object.keys(cloudData).length > 0) {
-                        logsData = normalizeLogsData(cloudData);
+                    if (cloudData.classId && cloudData.classId !== currentJournalClass) {
+                        throw new Error('该日志不属于当前班级');
+                    }
+                    if (cloudData.logs && Object.keys(cloudData.logs).length > 0) {
+                        logsData = normalizeLogsData(cloudData.logs);
                         saveToLocal();
                         
                         // 重新初始化页面：优先展示拉取下来的【最新一天】的数据，不再强行展示空模板
@@ -1019,7 +1133,7 @@
                         alert('云端文件数据为空。');
                     }
                 } else if (getRes.status === 404) {
-                    alert('云端没有找到该文件。如果是新文件，请直接在右侧书写并点击【保存并同步】来创建。');
+                    alert('这个班级还没有云端日志。可以直接书写并点击“保存该班日志”来创建。');
                     showStatus('云端文件不存在');
                 } else {
                     throw new Error('获取失败，请检查 Token 权限或网络。状态码: ' + getRes.status);
@@ -1038,14 +1152,11 @@
             triggerAutoSave();
             saveGitHubConfig();
 
-            const token = ghTokenInput.value.trim();
-            const path = ghPathInput.value.trim();
+            const token = verifiedJournalToken;
+            const path = getCurrentJournalPath();
 
             if (!token || !path) {
-                alert('请填写 Token 和 保存路径！'); return;
-            }
-            if (!ClassTools.validateGitHubRelativePath(path)) {
-                alert('保存路径格式不正确。请使用类似“六4.json”或“日志/六4.json”的相对路径，不要包含特殊符号。'); return;
+                alert('请先核实 Token 并选择班级。'); return;
             }
 
             showStatus('正在请求云端数据...');
@@ -1072,11 +1183,14 @@
                     sha = fileData.sha; 
                     const decodedContent = b64_to_utf8(fileData.content);
                     
-                    try {
-                        cloudData = JSON.parse(decodedContent);
-                    } catch (e) {
-                        console.error('云端数据格式错误，跳过合并', e);
+                    const cloudDocument = JSON.parse(decodedContent);
+                    if (cloudDocument.classId && cloudDocument.classId !== currentJournalClass) {
+                        throw new Error('云端日志不属于当前班级');
                     }
+                    if (!cloudDocument.logs || typeof cloudDocument.logs !== 'object') {
+                        throw new Error('云端日志格式不正确');
+                    }
+                    cloudData = cloudDocument.logs;
 
                     // 先生成可预览的合并方案；存在内容冲突时，未经确认绝不上传覆盖。
                     const mergePlan = prepareCloudMerge(logsData, cloudData);
@@ -1099,7 +1213,7 @@
 
                 // 第 4 步：将合并或新建后的数据推送到云端
                 showStatus('正在推送到云端...');
-                const encodedContent = utf8_to_b64(JSON.stringify(logsData, null, 2));
+                const encodedContent = utf8_to_b64(JSON.stringify(createJournalDocument(logsData), null, 2));
                 const bodyData = { message: `自动同步并合并班级日志: ${currentDateStr}`, content: encodedContent };
                 if (sha) bodyData.sha = sha; // 提供 sha 值用于覆盖旧文件
 

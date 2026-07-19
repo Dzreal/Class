@@ -147,7 +147,8 @@
             root,
             roster: `${root}/roster.json`,
             seats: `${root}/seats`,
-            votes: `${root}/votes`
+            votes: `${root}/votes`,
+            journal: `${root}/journal.json`
         });
     }
 
