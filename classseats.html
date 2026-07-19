@@ -460,12 +460,11 @@
             <div style="margin-top:18px; padding-top:16px; border-top:1px solid #e1e2e8;">
                 <div style="font-size:14px; font-weight:bold; margin-bottom:8px;">📚 选择班级</div>
                 <div style="display:flex; gap:8px;">
-                    <select id="seatClassSelector" aria-label="选择当前班级" style="flex:1; min-width:0; padding:10px; border:1px solid #c2c7cf; border-radius:8px;">
+                    <select id="seatClassSelector" aria-label="选择当前班级" onchange="applySelectedSeatClass()" style="flex:1; min-width:0; padding:10px; border:1px solid #c2c7cf; border-radius:8px;">
                         <option value="">请先核实 Token</option>
                     </select>
                     <button class="btn-github-load" onclick="refreshSeatClassSelector()" aria-label="刷新班级列表">刷新</button>
                 </div>
-                <button class="btn-github-load" onclick="applySelectedSeatClass()" style="width:100%; margin-top:8px;">选择该班级</button>
                 <div id="seatClassStatus" style="font-size:12px; color:#8e9196; margin-top:7px;">当前使用本地名单，不关联 GitHub 班级。</div>
             </div>
             <div style="margin-top:18px; padding-top:16px; border-top:1px solid #e1e2e8;">
@@ -934,14 +933,25 @@
     }
 
     async function applySelectedSeatClass() {
+        const select = document.getElementById('seatClassSelector');
+        const previousClassName = ClassTools.getClassNameFromRosterPath(currentClassListFile);
         const token = requireVerifiedToken();
-        if (!token) return;
-        const fileName = document.getElementById('seatClassSelector').value;
-        if (!fileName) { alert('请先选择班级。'); return; }
+        if (!token) {
+            select.value = previousClassName;
+            return;
+        }
+        const fileName = select.value;
+        if (!fileName) {
+            select.value = previousClassName;
+            return;
+        }
 
         const filePath = ClassTools.getClassDataPaths(fileName).roster;
         if (studentsData.length > 0 && filePath !== currentClassListFile
-            && !confirm('切换班级会替换当前学生和座位安排，当前现场会先自动备份。确定继续吗？')) return;
+            && !confirm('切换班级会替换当前学生和座位安排。确定继续吗？')) {
+            select.value = previousClassName;
+            return;
+        }
 
         try {
             const cloudData = await getGitHubJsonFile(token, filePath);
@@ -964,6 +974,7 @@
             updateSeatRosterStatus();
             await refreshSeatRecordSelector(true);
         } catch (error) {
+            select.value = previousClassName;
             alert('读取班级失败：' + error.message);
         }
     }
