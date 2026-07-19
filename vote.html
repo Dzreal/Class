@@ -2,9 +2,11 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; connect-src 'self' https://api.github.com; img-src 'self' data: blob:; object-src 'none'; base-uri 'none'; form-action 'self'">
     <title>班级投票系统</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="./shared.js"></script>
     <style>
         * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
         body { margin: 0; padding: 0; display: flex; height: 100vh; width: 100vw; background-color: #f4f7f6; overflow: hidden; }
@@ -155,7 +157,7 @@
                 <input type="password" id="ghTokenLogin" placeholder="GitHub Token (新设备首次需填)" autocomplete="off" style="margin-bottom: 10px;" onchange="syncTokenAndCheck()">
                 <input type="password" id="adminPwd" placeholder="请输入管理员密码" autocomplete="off">
                 <button class="action-btn" id="loginBtn" onclick="verifyPassword()">解锁配置区</button>
-                <p style="font-size: 12px; color: #444746; text-align: center;">私有库云端实时验证，守护安全</p>
+                <p style="font-size: 12px; color: #444746; text-align: center;">个人设备配置锁；GitHub Token 才是云端访问凭证</p>
                 
                 <div id="bigScreenArea" class="hidden" style="margin-top: 30px; padding-top: 20px; border-top: 1px dashed #c4c7c5;">
                     <h3 style="text-align: center; margin-top: 0; color: #0b57d0; font-size: 16px;">📊 免密大屏展示</h3>
@@ -250,6 +252,13 @@
                     <button class="action-btn" id="toggleBigScreenBtn" onclick="toggleBigScreen()" style="margin-top: 10px; background-color: #e1e3e1; color: #1f1f1f;">🔄 正在同步大屏状态...</button>
                     <button class="action-btn danger" onclick="clearLocalVotes()" style="margin-top: 10px;">清空本地投票 (不影响云端)</button>
                 </div>
+
+                <div class="config-section">
+                    <h3>4. 本地安全备份</h3>
+                    <p id="voteBackupHint" style="font-size:13px; color:#444746; line-height:1.5;">危险操作前会自动保存最近 10 份工作区。</p>
+                    <select id="voteBackupList" aria-label="选择要恢复的投票备份"><option value="">暂无本地备份</option></select>
+                    <button class="action-btn secondary" id="restoreVoteBackupBtn" onclick="restoreVoteBackup()">恢复选中的备份</button>
+                </div>
             </div>
         </div>
     </div>
@@ -285,19 +294,116 @@
         // 核心数据 (兼容老数据: rule, limit 字段)
         let appData = { students: [], questions: [], votes: [] };
         let editingQuestionId = null; 
+        const voteBackupManager = ClassTools.createJsonBackupManager('classVoteBackups', 10);
+
+        function normalizeVoteData(source) {
+            const safeSource = source && typeof source === 'object' ? source : {};
+            return {
+                students: Array.isArray(safeSource.students)
+                    ? safeSource.students
+                        .map(student => ({ id: String(student?.id ?? '').trim(), name: String(student?.name ?? '').trim() }))
+                        .filter(student => student.id && student.name)
+                    : [],
+                questions: Array.isArray(safeSource.questions)
+                    ? safeSource.questions
+                        .filter(question => question && Array.isArray(question.options) && question.options.length >= 2)
+                        .map((question, index) => ({
+                            id: ['string', 'number'].includes(typeof question.id) ? question.id : `${Date.now()}-${index}`,
+                            title: String(question.title ?? ''),
+                            type: question.type === 'radio' ? 'radio' : 'checkbox',
+                            rule: ['radio', 'checkbox', 'max', 'exact'].includes(question.rule) ? question.rule : (question.type === 'radio' ? 'radio' : 'checkbox'),
+                            limit: Number.isFinite(Number(question.limit)) ? Math.max(0, Math.min(question.options.length, Number(question.limit))) : 0,
+                            options: question.options.map(option => String(option))
+                        }))
+                    : [],
+                votes: Array.isArray(safeSource.votes)
+                    ? safeSource.votes
+                        .filter(vote => vote && vote.answers && typeof vote.answers === 'object')
+                        .map(vote => {
+                            const answers = Object.create(null);
+                            Object.keys(vote.answers).forEach(key => {
+                                if (Array.isArray(vote.answers[key])) answers[key] = vote.answers[key].map(answer => String(answer));
+                            });
+                            return {
+                                studentId: String(vote.studentId ?? ''),
+                                studentName: String(vote.studentName ?? ''),
+                                answers,
+                                timestamp: Number(vote.timestamp) || 0
+                            };
+                        })
+                    : []
+            };
+        }
+
+        function backupVoteWorkspace(reason) {
+            const result = voteBackupManager.snapshot(appData, reason);
+            if (!result.ok) {
+                alert('⚠️ 本地存储空间不足，无法创建安全备份。为防止数据丢失，本次操作已经停止。');
+                return false;
+            }
+            renderVoteBackupList();
+            return true;
+        }
+
+        function renderVoteBackupList() {
+            const select = document.getElementById('voteBackupList');
+            const hint = document.getElementById('voteBackupHint');
+            const restoreButton = document.getElementById('restoreVoteBackupBtn');
+            if (!select || !hint || !restoreButton) return;
+
+            const backups = voteBackupManager.list();
+            select.innerHTML = '';
+            if (backups.length === 0) {
+                const option = document.createElement('option');
+                option.value = '';
+                option.textContent = '暂无本地备份';
+                select.appendChild(option);
+                select.disabled = true;
+                restoreButton.disabled = true;
+                hint.textContent = '危险操作前会自动保存最近 10 份工作区。';
+                return;
+            }
+
+            backups.forEach(backup => {
+                const option = document.createElement('option');
+                option.value = backup.id;
+                option.textContent = `${new Date(backup.createdAt).toLocaleString('zh-CN', { hour12: false })} · ${backup.reason}`;
+                select.appendChild(option);
+            });
+            select.disabled = false;
+            restoreButton.disabled = false;
+            hint.textContent = `当前有 ${backups.length} 份本地快照，最多保留 ${voteBackupManager.maxBackups} 份。`;
+        }
+
+        function restoreVoteBackup() {
+            const selectedId = document.getElementById('voteBackupList').value;
+            const backup = voteBackupManager.get(selectedId);
+            if (!backup) { alert('没有找到选中的备份。'); return; }
+            if (!confirm('确定恢复这份投票工作区吗？当前内容会先自动备份。')) return;
+            if (!backupVoteWorkspace('恢复投票备份前')) return;
+
+            appData = normalizeVoteData(backup.data);
+            saveToLocal();
+            updateClassStatus();
+            renderQuestionList();
+            renderVotingInterface();
+            renderStudentDropdown();
+            renderVoteBackupList();
+            alert('✅ 已恢复选中的投票备份。');
+        }
 
         // ------------------ GitHub API 交互封装 ------------------
         const GitHub = {
             get config() {
                 return {
-                    token: document.getElementById('ghTokenLogin').value.trim() || localStorage.getItem('ghToken') || '',
+                    token: document.getElementById('ghTokenLogin').value.trim() || ClassTools.loadGitHubToken(['ghToken']) || '',
                     owner: 'Dzreal', 
                     repo: 'Class-Data' 
                 };
             },
             get headers() {
                 return {
-                    'Authorization': `token ${this.config.token}`,
+                    'Authorization': `Bearer ${this.config.token}`,
                     'Accept': 'application/vnd.github.v3+json',
                     'Content-Type': 'application/json'
                 };
@@ -316,7 +422,8 @@
                 return decodeURIComponent(atob(str).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
             },
             async getSha(path) {
-                const res = await fetch(`https://api.github.com/repos/${this.config.owner}/${this.config.repo}/contents/${path}`, { headers: this.headers, cache: 'no-store' });
+                const safePath = ClassTools.encodeGitHubPath(path);
+                const res = await fetch(`https://api.github.com/repos/${this.config.owner}/${this.config.repo}/contents/${safePath}`, { headers: this.headers, cache: 'no-store' });
                 if (res.ok) { const data = await res.json(); return data.sha; }
                 return null;
             },
@@ -329,7 +436,8 @@
                     const body = { message, content: encoded };
                     if (sha) body.sha = sha;
 
-                    const res = await fetch(`https://api.github.com/repos/${this.config.owner}/${this.config.repo}/contents/${path}`, {
+                    const safePath = ClassTools.encodeGitHubPath(path);
+                    const res = await fetch(`https://api.github.com/repos/${this.config.owner}/${this.config.repo}/contents/${safePath}`, {
                         method: 'PUT', headers: this.headers, body: JSON.stringify(body)
                     });
                     if (!res.ok) throw new Error(await res.text());
@@ -342,7 +450,8 @@
             async getFile(path, silent = false) {
                 if (!this.checkConfig(silent)) return null;
                 try {
-                    const res = await fetch(`https://api.github.com/repos/${this.config.owner}/${this.config.repo}/contents/${path}`, { headers: this.headers, cache: 'no-store' });
+                    const safePath = ClassTools.encodeGitHubPath(path);
+                    const res = await fetch(`https://api.github.com/repos/${this.config.owner}/${this.config.repo}/contents/${safePath}`, { headers: this.headers, cache: 'no-store' });
                     if (!res.ok) {
                         if (res.status === 404) return null; 
                         throw new Error('文件不存在或权限不足');
@@ -357,7 +466,8 @@
             async listFiles(dir) {
                 if (!this.checkConfig(true)) return [];
                 try {
-                    const res = await fetch(`https://api.github.com/repos/${this.config.owner}/${this.config.repo}/contents/${dir}`, { headers: this.headers, cache: 'no-store' });
+                    const safePath = ClassTools.encodeGitHubPath(dir);
+                    const res = await fetch(`https://api.github.com/repos/${this.config.owner}/${this.config.repo}/contents/${safePath}`, { headers: this.headers, cache: 'no-store' });
                     if (!res.ok) { if (res.status === 404) return []; throw new Error('获取列表失败'); }
                     const data = await res.json();
                     return data.filter(item => item.type === 'file').map(item => item.name);
@@ -371,7 +481,8 @@
                 try {
                     const sha = await this.getSha(path);
                     if (!sha) { alert('云端未找到该文件！'); return false; }
-                    const res = await fetch(`https://api.github.com/repos/${this.config.owner}/${this.config.repo}/contents/${path}`, {
+                    const safePath = ClassTools.encodeGitHubPath(path);
+                    const res = await fetch(`https://api.github.com/repos/${this.config.owner}/${this.config.repo}/contents/${safePath}`, {
                         method: 'DELETE', headers: this.headers, body: JSON.stringify({ message, sha })
                     });
                     if (!res.ok) throw new Error('删除失败');
@@ -387,19 +498,28 @@
         function renderStudentDropdown() {
             const select = document.getElementById('studentSelect');
             if (!select) return;
-            
+
+            select.innerHTML = '';
+            const placeholder = document.createElement('option');
+            placeholder.value = '';
+
             if (!appData.students || appData.students.length === 0) {
-                select.innerHTML = '<option value="">请等待老师配置班级名单...</option>';
+                placeholder.textContent = '请等待老师配置班级名单...';
+                select.appendChild(placeholder);
                 return;
             }
 
             const votedIds = appData.votes.map(v => String(v.studentId));
             const unvotedStudents = appData.students.filter(s => !votedIds.includes(String(s.id)));
 
-            select.innerHTML = `<option value="">还剩 ${unvotedStudents.length} 人未投票 (请下拉选择)</option>`;
+            placeholder.textContent = `还剩 ${unvotedStudents.length} 人未投票 (请下拉选择)`;
+            select.appendChild(placeholder);
 
             unvotedStudents.forEach(s => {
-                select.innerHTML += `<option value="${s.id}|${s.name}">${s.id} - ${s.name}</option>`;
+                const option = document.createElement('option');
+                option.value = String(s.id);
+                option.textContent = `${s.id} - ${s.name}`;
+                select.appendChild(option);
             });
         }
 
@@ -410,6 +530,7 @@
             renderVotingInterface();
             updateClassStatus();
             renderStudentDropdown();
+            renderVoteBackupList();
         };
 
         function toggleSidebar(btn) { 
@@ -424,7 +545,7 @@
         function syncTokenAndCheck() {
             const token = document.getElementById('ghTokenLogin').value.trim();
             if (token) {
-                localStorage.setItem('ghToken', token);
+                ClassTools.saveGitHubToken(token);
                 checkAndRenderBigScreenLogin();
             }
         }
@@ -432,7 +553,7 @@
         async function verifyPassword() {
             const tokenLogin = document.getElementById('ghTokenLogin').value.trim();
             if (tokenLogin) {
-                localStorage.setItem('ghToken', tokenLogin);
+                ClassTools.saveGitHubToken(tokenLogin);
             }
 
             if (!GitHub.config.token) {
@@ -475,7 +596,7 @@
         }
 
         function initGhConfig() {
-            const token = localStorage.getItem('ghToken') || '';
+            const token = ClassTools.loadGitHubToken(['ghToken']);
             document.getElementById('ghTokenLogin').value = token;
         }
 
@@ -569,7 +690,12 @@
 
         // --- 名单管理 ---
         function triggerExcelUpload() {
-            if (!document.getElementById('newClassName').value.trim()) { alert('请先输入拟保存的名单名称！'); return; }
+            const name = document.getElementById('newClassName').value.trim();
+            if (!name) { alert('请先输入拟保存的名单名称！'); return; }
+            if (!ClassTools.validateCloudFileName(name)) {
+                alert('名单名称不能超过 60 个字，也不能包含 \\ / : * ? " < > | # % 等符号。');
+                return;
+            }
             document.getElementById('excelUpload').click();
         }
 
@@ -577,28 +703,41 @@
             const file = event.target.files[0];
             if (!file) return;
             const name = document.getElementById('newClassName').value.trim();
+            if (!ClassTools.validateCloudFileName(name)) {
+                alert('名单名称格式不正确，请重新填写。');
+                event.target.value = '';
+                return;
+            }
             const reader = new FileReader();
             reader.onload = async function(e) {
                 try {
                     const data = new Uint8Array(e.target.result);
                     const workbook = XLSX.read(data, {type: 'array'});
-                    const json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], {header: 1});
-                    
-                    let newStudents = [];
+                    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                    if (!firstSheet) throw new Error('Excel 中没有可读取的工作表');
+                    const json = XLSX.utils.sheet_to_json(firstSheet, {header: 1});
+
+                    const studentMap = new Map();
+                    let duplicateStudentIds = 0;
                     for (let i = 0; i < json.length; i++) {
                         let row = json[i];
                         if (row.length >= 2 && row[0] != null && row[1] != null) {
                             const idStr = String(row[0]).trim();
                             const nameStr = String(row[1]).trim();
                             if (idStr === '学号' || idStr.toLowerCase() === 'id') continue;
-                            newStudents.push({ id: idStr, name: nameStr });
+                            if (!idStr || !nameStr) continue;
+                            if (studentMap.has(idStr)) duplicateStudentIds++;
+                            studentMap.set(idStr, { id: idStr, name: nameStr });
                         }
                     }
+                    const newStudents = Array.from(studentMap.values());
 
                     if (newStudents.length > 0) {
                         const success = await GitHub.saveFile(`classeslists/${name}.json`, newStudents, `Add class list ${name}`);
                         if(success) {
-                            alert(`✅ 成功读取 Excel 并已将其写入 GitHub: classeslists/${name}.json`);
+                            if (!backupVoteWorkspace('导入新班级名单前')) return;
+                            const duplicateHint = duplicateStudentIds > 0 ? `\n发现 ${duplicateStudentIds} 行重复学号，已采用最后一行。` : '';
+                            alert(`✅ 成功读取 Excel 并已将其写入 GitHub: classeslists/${name}.json${duplicateHint}`);
                             appData.students = newStudents;
                             appData.votes = []; 
                             saveToLocal(); updateClassStatus(); refreshCloudClasses();
@@ -606,7 +745,7 @@
                             document.getElementById('newClassName').value = '';
                         }
                     } else { alert("未能读取到有效名单内容。"); }
-                } catch (err) { alert("解析失败，格式异常。"); }
+                } catch (err) { alert("解析失败：" + err.message); }
             };
             reader.readAsArrayBuffer(file);
             event.target.value = ''; 
@@ -637,9 +776,9 @@
             }
 
             const data = await GitHub.getFile(`classeslists/${fileName}`);
-            if(data) {
-                appData.students = data;
-                appData.votes = []; 
+            if(Array.isArray(data)) {
+                if (!backupVoteWorkspace('读取新班级名单前')) return;
+                appData = normalizeVoteData({ ...appData, students: data, votes: [] });
                 saveToLocal(); updateClassStatus();
                 renderStudentDropdown();
                 document.getElementById('cloudLoadStatus').innerText = `已读取到“${fileName.replace('.json', '')}”共${data.length}人`;
@@ -704,6 +843,7 @@
             const htmlType = (rule === 'radio') ? 'radio' : 'checkbox';
 
             if (editingQuestionId) {
+                if (!backupVoteWorkspace('修改题目前')) return;
                 const q = appData.questions.find(q => q.id === editingQuestionId);
                 if (q) { 
                     q.title = title; 
@@ -748,6 +888,7 @@
 
         function deleteSingleQuestion(qId) {
             if (confirm("确定删除该题？统计时将被忽略。")) {
+                if (!backupVoteWorkspace('删除题目前')) return;
                 appData.questions = appData.questions.filter(q => q.id !== qId);
                 saveToLocal(); renderQuestionList(); renderVotingInterface();
                 if (editingQuestionId === qId) cancelEdit();
@@ -756,6 +897,7 @@
 
         function clearQuestions() {
             if (confirm("清空所有题目？不会删除现有记录数据。")) {
+                if (!backupVoteWorkspace('清空题目前')) return;
                 appData.questions = [];
                 saveToLocal(); renderQuestionList(); renderVotingInterface(); cancelEdit();
             }
@@ -775,16 +917,32 @@
             const container = document.getElementById('questionListContainer');
             container.innerHTML = ''; 
             appData.questions.forEach((q, index) => {
-                container.innerHTML += `
-                <div class="question-list-item">
-                    <div style="flex:1; padding-right:10px; word-break: break-all;">
-                        <strong>${index + 1}.</strong> ${q.title} <span style="color:#444746; font-size:12px;">(${getRuleText(q)})</span>
-                    </div>
-                    <div style="display: flex; gap: 5px;">
-                        <button class="action-btn secondary small-btn" onclick="editQuestion(${q.id})">编辑</button>
-                        <button class="action-btn danger small-btn" onclick="deleteSingleQuestion(${q.id})">删除</button>
-                    </div>
-                </div>`;
+                const item = document.createElement('div');
+                item.className = 'question-list-item';
+
+                const summary = document.createElement('div');
+                summary.style.cssText = 'flex:1; padding-right:10px; word-break:break-all;';
+                const number = document.createElement('strong');
+                number.textContent = `${index + 1}. `;
+                const ruleText = document.createElement('span');
+                ruleText.style.cssText = 'color:#444746; font-size:12px;';
+                ruleText.textContent = ` (${getRuleText(q)})`;
+                summary.append(number, document.createTextNode(String(q.title ?? '')), ruleText);
+
+                const actions = document.createElement('div');
+                actions.style.cssText = 'display:flex; gap:5px;';
+                const editButton = document.createElement('button');
+                editButton.className = 'action-btn secondary small-btn';
+                editButton.textContent = '编辑';
+                editButton.addEventListener('click', () => editQuestion(q.id));
+                const deleteButton = document.createElement('button');
+                deleteButton.className = 'action-btn danger small-btn';
+                deleteButton.textContent = '删除';
+                deleteButton.addEventListener('click', () => deleteSingleQuestion(q.id));
+                actions.append(editButton, deleteButton);
+
+                item.append(summary, actions);
+                container.appendChild(item);
             });
         }
 
@@ -792,6 +950,10 @@
         async function saveVoteRecord() {
             const name = document.getElementById('recordName').value.trim();
             if (!name) { alert('请填写要保存的记录名称！'); return; }
+            if (!ClassTools.validateCloudFileName(name)) {
+                alert('记录名称不能超过 60 个字，也不能包含 \\ / : * ? " < > | # % 等符号。');
+                return;
+            }
             
             const success = await GitHub.saveFile(`voterecords/${name}.json`, appData, `Save vote record ${name}`);
             if(success) {
@@ -820,7 +982,8 @@
             if(!fileName) { alert('请先选择要读取的记录'); return; }
             const data = await GitHub.getFile(`voterecords/${fileName}`);
             if(data && data.questions) { 
-                appData = data;
+                if (!backupVoteWorkspace('读取云端投票记录前')) return;
+                appData = normalizeVoteData(data);
                 saveToLocal(); updateClassStatus(); renderQuestionList(); renderVotingInterface();
                 renderStudentDropdown();
                 alert(`✅ 成功从云端恢复投票记录: ${fileName.replace('.json', '')}`);
@@ -838,6 +1001,7 @@
 
         function clearLocalVotes() {
             if (confirm("确定要清空目前工作区的投票结果吗？（只要不覆盖保存，云端的备份不受影响）")) {
+                if (!backupVoteWorkspace('清空本地投票前')) return;
                 appData.votes = [];
                 saveToLocal(); 
                 renderStudentDropdown(); 
@@ -847,9 +1011,9 @@
 
         // --- 右侧投票端 ---
         // 实时拦截多选超限
-        function enforceCheckboxLimit(checkbox, rule, limit, qId) {
+        function enforceCheckboxLimit(checkbox, rule, limit, groupName) {
             if (checkbox.checked && (rule === 'max' || rule === 'exact')) {
-                const checkedCount = document.querySelectorAll(`input[name="name_q_${qId}"]:checked`).length;
+                const checkedCount = document.querySelectorAll(`input[name="${groupName}"]:checked`).length;
                 if (checkedCount > limit) {
                     checkbox.checked = false;
                     alert(`这道题规定【最多只能选择 ${limit} 项】哦！`);
@@ -861,25 +1025,50 @@
             const area = document.getElementById('votingArea');
             const btn = document.getElementById('submitBtn');
             if (appData.questions.length === 0) {
-                area.innerHTML = '<p style="text-align: center; color: #444746; font-size: 18px; margin-top: 50px;">请等待老师配置题目...</p>';
+                area.innerHTML = '';
+                const emptyMessage = document.createElement('p');
+                emptyMessage.style.cssText = 'text-align:center; color:#444746; font-size:18px; margin-top:50px;';
+                emptyMessage.textContent = '请等待老师配置题目...';
+                area.appendChild(emptyMessage);
                 btn.classList.add('hidden'); return;
             }
             btn.classList.remove('hidden'); area.innerHTML = '';
             appData.questions.forEach((q, index) => {
                 const rule = q.rule || q.type;
                 const limit = q.limit || 0;
-                let html = `<div class="question-card" id="qcard_${q.id}">
-                                <h4>${index + 1}. ${q.title} <span style="font-weight:normal; color:#0b57d0; font-size:0.8em;">(${getRuleText(q)})</span></h4>`;
-                
+                const groupName = `name_q_${index}`;
+                const questionCard = document.createElement('div');
+                questionCard.className = 'question-card';
+
+                const heading = document.createElement('h4');
+                heading.textContent = `${index + 1}. ${String(q.title ?? '')} `;
+                const ruleText = document.createElement('span');
+                ruleText.style.cssText = 'font-weight:normal; color:#0b57d0; font-size:0.8em;';
+                ruleText.textContent = `(${getRuleText(q)})`;
+                heading.appendChild(ruleText);
+                questionCard.appendChild(heading);
+
                 q.options.forEach((opt, oIndex) => {
                     const inputId = `q_${q.id}_opt_${oIndex}`;
-                    const onChangeAttr = (rule === 'max' || rule === 'exact') ? `onchange="enforceCheckboxLimit(this, '${rule}', ${limit}, ${q.id})"` : '';
-                    html += `<label class="option-label" for="${inputId}">
-                                <input type="${q.type}" id="${inputId}" name="name_q_${q.id}" value="${opt}" ${onChangeAttr}>
-                                <span>${opt}</span>
-                             </label>`;
+                    const label = document.createElement('label');
+                    label.className = 'option-label';
+
+                    const input = document.createElement('input');
+                    input.type = q.type === 'radio' ? 'radio' : 'checkbox';
+                    input.id = inputId.replace(/[^A-Za-z0-9_-]/g, '_');
+                    input.name = groupName;
+                    input.value = String(opt);
+                    label.htmlFor = input.id;
+                    if (rule === 'max' || rule === 'exact') {
+                        input.addEventListener('change', () => enforceCheckboxLimit(input, rule, limit, groupName));
+                    }
+
+                    const optionText = document.createElement('span');
+                    optionText.textContent = String(opt);
+                    label.append(input, optionText);
+                    questionCard.appendChild(label);
                 });
-                area.innerHTML += html + `</div>`;
+                area.appendChild(questionCard);
             });
         }
 
@@ -897,7 +1086,14 @@
                 return; 
             }
 
-            const [idInput, nameInput] = selectedValue.split('|');
+            const idInput = selectedValue;
+            const selectedStudent = appData.students.find(student => String(student.id) === String(idInput));
+            if (!selectedStudent) {
+                alert('未找到对应学生，请重新读取班级名单。');
+                renderStudentDropdown();
+                return;
+            }
+            const nameInput = String(selectedStudent.name ?? '');
 
             if (appData.votes.some(v => String(v.studentId) === String(idInput))) {
                 alert(`学号 ${idInput} 已经完成过投票！`); 
@@ -910,7 +1106,7 @@
                 const q = appData.questions[i];
                 const rule = q.rule || q.type;
                 const limit = q.limit || 0;
-                const inputs = document.querySelectorAll(`input[name="name_q_${q.id}"]:checked`);
+                const inputs = document.querySelectorAll(`input[name="name_q_${i}"]:checked`);
                 const checkedCount = inputs.length;
 
                 // 防呆：必须做题
@@ -933,7 +1129,10 @@
             }
 
             appData.votes.push({ studentId: idInput, studentName: nameInput, answers: currentAnswers, timestamp: Date.now() });
-            saveToLocal();
+            if (!saveToLocal()) {
+                appData.votes.pop();
+                return;
+            }
             alert("提交成功！请传递给下一位。");
             resetVotingForm();
         }
@@ -953,35 +1152,70 @@
 
         function renderVisualizationData(dataObj) {
             const content = document.getElementById('visualContent');
-            let html = `<p>当前读取参与人数：<strong>${dataObj.votes.length}</strong> 人</p>`;
+            content.innerHTML = '';
+
+            const participantCount = document.createElement('p');
+            participantCount.append('当前读取参与人数：');
+            const participantStrong = document.createElement('strong');
+            participantStrong.textContent = String(dataObj.votes.length);
+            participantCount.append(participantStrong, ' 人');
+            content.appendChild(participantCount);
 
             dataObj.questions.forEach((q, index) => {
-                html += `<div style="margin-top:20px; border-top:1px solid #eee; padding-top:10px;"><h3 style="margin-bottom:10px; color:#1f1f1f;">${index + 1}. ${q.title}</h3>`;
-                let counts = {}; q.options.forEach(opt => counts[opt] = 0);
+                const questionResult = document.createElement('div');
+                questionResult.style.cssText = 'margin-top:20px; border-top:1px solid #eee; padding-top:10px;';
+                const heading = document.createElement('h3');
+                heading.style.cssText = 'margin-bottom:10px; color:#1f1f1f;';
+                heading.textContent = `${index + 1}. ${String(q.title ?? '')}`;
+                questionResult.appendChild(heading);
+
+                const counts = new Map();
+                q.options.forEach(opt => counts.set(String(opt), 0));
                 dataObj.votes.forEach(vote => {
-                    (vote.answers[`q_${q.id}`] || []).forEach(ans => { if (counts[ans] !== undefined) counts[ans]++; });
+                    (vote.answers[`q_${q.id}`] || []).forEach(answer => {
+                        const key = String(answer);
+                        if (counts.has(key)) counts.set(key, counts.get(key) + 1);
+                    });
                 });
                 q.options.forEach(opt => {
-                    const percent = dataObj.votes.length === 0 ? 0 : Math.round((counts[opt] / dataObj.votes.length) * 100);
-                    html += `<div style="margin-bottom: 8px; color:#1f1f1f;"><span>${opt} - <strong>${counts[opt]}票</strong> (${percent}%)</span><div class="result-bar" style="width: ${percent}%;"></div></div>`;
+                    const option = String(opt);
+                    const count = counts.get(option) || 0;
+                    const percent = dataObj.votes.length === 0 ? 0 : Math.round((count / dataObj.votes.length) * 100);
+                    const row = document.createElement('div');
+                    row.style.cssText = 'margin-bottom:8px; color:#1f1f1f;';
+                    const text = document.createElement('span');
+                    text.append(`${option} - `);
+                    const strong = document.createElement('strong');
+                    strong.textContent = `${count}票`;
+                    text.append(strong, ` (${percent}%)`);
+                    const bar = document.createElement('div');
+                    bar.className = 'result-bar';
+                    bar.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+                    row.append(text, bar);
+                    questionResult.appendChild(row);
                 });
-                html += `</div>`;
+                content.appendChild(questionResult);
             });
-            content.innerHTML = html;
         }
 
         function closeVisualization() { document.getElementById('visualModal').classList.add('hidden'); }
 
         // --- 本地缓存机制 ---
-        function saveToLocal() { localStorage.setItem('classVoteData', JSON.stringify(appData)); }
+        function saveToLocal() {
+            try {
+                localStorage.setItem('classVoteData', JSON.stringify(appData));
+                return true;
+            } catch (error) {
+                console.error('投票数据保存失败', error);
+                alert('⚠️ 浏览器本地空间不足，当前投票数据未能保存。请先导出或清理旧网站数据。');
+                return false;
+            }
+        }
         function loadFromLocal() {
             try {
                 const saved = localStorage.getItem('classVoteData');
                 if (saved) {
-                    const parsed = JSON.parse(saved);
-                    appData.students = parsed.students || [];
-                    appData.questions = parsed.questions || [];
-                    appData.votes = parsed.votes || [];
+                    appData = normalizeVoteData(JSON.parse(saved));
                 }
             } catch (e) { console.error("本地数据解析失败"); }
         }

@@ -3,9 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://api.github.com; img-src 'self' data: blob:; object-src 'none'; base-uri 'none'; form-action 'self'">
     <title>班级管理工具箱</title>
     <!-- 优化：提前连接 GitHub API 域名，加速后续的 DNS 解析和 TLS 握手时间 -->
     <link rel="preconnect" href="https://api.github.com">
+    <script src="./shared.js"></script>
     <style>
         body {
             font-family: Roboto, 'Segoe UI', "Microsoft YaHei", sans-serif;
@@ -140,11 +142,19 @@
                 const card = document.createElement('a');
                 card.href = data.url;
                 card.className = 'card';
-                card.innerHTML = `
-                    <div class="icon">${data.icon}</div>
-                    <h2>${data.title}</h2>
-                    <p>${data.desc}</p>
-                `;
+
+                // 标题等内容来自仓库文件，使用 textContent 避免意外 HTML 被执行。
+                const icon = document.createElement('div');
+                icon.className = 'icon';
+                icon.textContent = data.icon;
+
+                const title = document.createElement('h2');
+                title.textContent = data.title;
+
+                const description = document.createElement('p');
+                description.textContent = data.desc;
+
+                card.append(icon, title, description);
                 container.appendChild(card);
             });
             container.style.display = 'grid';

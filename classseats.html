@@ -2,9 +2,11 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; connect-src 'self' https://api.github.com; img-src 'self' data: blob:; object-src 'none'; base-uri 'none'; form-action 'self'">
 <title>班级排座位系统</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="./shared.js"></script>
 
 <link rel="stylesheet" href="https://unpkg.com/mobile-drag-drop@2.3.0/default.min.css">
 <script src="https://unpkg.com/mobile-drag-drop@2.3.0/index.min.js"></script>
@@ -331,7 +333,7 @@
 </head>
 <body>
 
-<button class="top-right-btn" onclick="document.getElementById('tokenModal').classList.remove('hidden')">☰</button>
+<button class="top-right-btn" aria-label="打开云端同步与备份设置" onclick="document.getElementById('tokenModal').classList.remove('hidden')">☰</button>
 
 <h1>班级座位手动排列系统</h1>
 
@@ -404,7 +406,7 @@
                 <button class="btn-mirror" id="btn-mirror" onclick="toggleMirror()">🔄 师生视角切换</button>
                 <button class="btn-toggle-boxes" id="btn-toggle-boxes" onclick="toggleBoxes()">🔲 去除所有小组框</button>
                 <button class="btn-manual" id="btn-manual-toggle" onclick="toggleManualMode()">⌨️ 开启手动录入</button>
-                <button class="btn-reset" onclick="resetAll()">名单全体归位</button>
+                <button class="btn-reset" onclick="resetAllWithBackup()">名单全体归位</button>
             </div>
 
             <div class="controls-row">
@@ -448,7 +450,13 @@
                     <button class="btn-github-save" style="flex:1;" onclick="saveToGitHubCloud()">☁️ 保存至云端</button>
                 </div>
             </div>
-            <div style="font-size: 12px; color: #8e9196; margin-top:20px; text-align:center;">Token 仅保存在你当前电脑本地，数据将安全加密传输至私有仓库。</div>
+            <div style="font-size: 12px; color: #8e9196; margin-top:20px; text-align:center;">请使用仅能访问 Class-Data 的细粒度 Token；数据通过 HTTPS 传输。</div>
+            <div style="margin-top:18px; padding-top:16px; border-top:1px solid #e1e2e8;">
+                <div style="font-size:14px; font-weight:bold; margin-bottom:8px;">🛟 本地安全备份</div>
+                <div id="seatBackupHint" style="font-size:12px; color:#8e9196; margin-bottom:8px;">读取或重排前会自动保留最近 10 份座位表。</div>
+                <select id="seatBackupList" aria-label="选择要恢复的座位备份" style="width:100%; padding:10px; border:1px solid #c2c7cf; border-radius:8px; margin-bottom:10px;"><option value="">暂无本地备份</option></select>
+                <button class="btn-github-load" id="restoreSeatBackupBtn" onclick="restoreSeatBackup()" style="width:100%;">恢复选中的备份</button>
+            </div>
         </div>
     </div>
 </div>
@@ -473,6 +481,7 @@
     let savedBoxesData = [];    
     let customBoxes = [];
     let colorIndexTracker = 0;
+    const seatBackupManager = ClassTools.createJsonBackupManager('classSeatBackups', 10);
     
     let draggedElement = null;
     let activeBox = null, activeHandle = null, startX, startY, startRect;
@@ -495,17 +504,16 @@
     const GITHUB_FILE_PATH = 'seat_data.json'; 
 
     window.onload = function() {
-        let savedToken = localStorage.getItem('github_sync_token');
+        let savedToken = ClassTools.loadGitHubToken(['github_sync_token']);
         if(savedToken) {
             document.getElementById('github-token').value = savedToken;
         }
+        renderSeatBackupList();
     };
 
     function saveTokenLocally() {
         let token = document.getElementById('github-token').value.trim();
-        if(token) {
-            localStorage.setItem('github_sync_token', token);
-        }
+        ClassTools.saveGitHubToken(token);
     }
 
     function encodeUTF8ToBase64(str) {
@@ -525,7 +533,7 @@
         let url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${GITHUB_FILE_PATH}`;
         try {
             let response = await fetch(url, {
-                headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json' }
+                headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/vnd.github.v3+json' }
             });
             if (response.ok) {
                 let data = await response.json();
@@ -580,7 +588,7 @@
             let response = await fetch(url, {
                 method: 'PUT',
                 headers: {
-                    'Authorization': `token ${token}`,
+                    'Authorization': `Bearer ${token}`,
                     'Accept': 'application/vnd.github.v3+json',
                     'Content-Type': 'application/json'
                 },
@@ -610,15 +618,16 @@
             document.querySelector('.btn-github-load').innerText = '正在读取...';
             let url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${GITHUB_FILE_PATH}`;
             let response = await fetch(url, {
-                headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json' }
+                headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/vnd.github.v3+json' }
             });
 
             if (response.ok) {
                 let data = await response.json();
                 let jsonString = decodeBase64ToUTF8(data.content);
                 let importedData = JSON.parse(jsonString);
-                applyImportedData(importedData); 
-                alert('✅ 已从云端读取并完美还原排座！');
+                if (applyImportedData(importedData) !== false) {
+                    alert('✅ 已从云端读取并完美还原排座！');
+                }
             } else {
                 alert('❌ 读取失败，可能是云端还没有保存过数据，或者私有仓库名字没有对应上。');
             }
@@ -650,9 +659,91 @@
         if (h3Girls) h3Girls.innerText = `女生名单（${girlsCount}人）`;
     }
 
-    function applyImportedData(importedData) {
+    function collectCurrentSeatState() {
+        const layout = {};
+        document.querySelectorAll('.seat').forEach(seat => {
+            if (seat.children.length > 0 && seat.children[0].classList.contains('student')) {
+                layout[seat.id] = seat.children[0].id;
+            }
+        });
+
+        return {
+            studentsData,
+            config: {
+                cols: document.getElementById('set-cols').value,
+                rows: document.getElementById('set-rows').value,
+                colsPerGroup: document.getElementById('set-colsPerGroup').value,
+                doorPos: document.getElementById('set-door').value,
+                isMirrored
+            },
+            deletedSeatIds: Array.from(document.querySelectorAll('.seat.deleted')).map(seat => seat.id),
+            layout,
+            boxesData: customBoxes.map(box => ({
+                seats: box.attachedSeats.map(seat => seat.id),
+                color: box.el.style.borderColor
+            }))
+        };
+    }
+
+    function backupCurrentSeatState(reason) {
+        if (studentsData.length === 0) return true;
+        const result = seatBackupManager.snapshot(collectCurrentSeatState(), reason);
+        if (!result.ok) {
+            alert('⚠️ 本地存储空间不足，无法创建安全备份。为防止座位数据丢失，本次操作已经停止。');
+            return false;
+        }
+        renderSeatBackupList();
+        return true;
+    }
+
+    function renderSeatBackupList() {
+        const select = document.getElementById('seatBackupList');
+        const hint = document.getElementById('seatBackupHint');
+        const restoreButton = document.getElementById('restoreSeatBackupBtn');
+        if (!select || !hint || !restoreButton) return;
+
+        const backups = seatBackupManager.list();
+        select.innerHTML = '';
+        if (backups.length === 0) {
+            const option = document.createElement('option');
+            option.value = '';
+            option.textContent = '暂无本地备份';
+            select.appendChild(option);
+            select.disabled = true;
+            restoreButton.disabled = true;
+            hint.textContent = '读取或重排前会自动保留最近 10 份座位表。';
+            return;
+        }
+
+        backups.forEach(backup => {
+            const option = document.createElement('option');
+            option.value = backup.id;
+            option.textContent = `${new Date(backup.createdAt).toLocaleString('zh-CN', { hour12: false })} · ${backup.reason}`;
+            select.appendChild(option);
+        });
+        select.disabled = false;
+        restoreButton.disabled = false;
+        hint.textContent = `当前有 ${backups.length} 份快照，最多保留 ${seatBackupManager.maxBackups} 份。`;
+    }
+
+    function restoreSeatBackup() {
+        const backup = seatBackupManager.get(document.getElementById('seatBackupList').value);
+        if (!backup) { alert('没有找到选中的座位备份。'); return; }
+        if (!confirm('确定恢复这份座位表吗？当前座位也会先自动备份。')) return;
+        if (!backupCurrentSeatState('恢复座位备份前')) return;
+        applyImportedData(backup.data, true);
+        renderSeatBackupList();
+        alert('✅ 已恢复选中的座位备份。');
+    }
+
+    function applyImportedData(importedData, skipSafetyBackup = false) {
+        if (!importedData || !Array.isArray(importedData.studentsData)) throw new Error('座位数据格式不完整');
+        if (!skipSafetyBackup && !backupCurrentSeatState('读取新座位数据前')) return false;
         if(importedData.studentsData) {
-            studentsData = importedData.studentsData;
+            studentsData = importedData.studentsData.slice(0, 500).map(student => ({
+                name: String(student?.name ?? '').trim().slice(0, 100),
+                gender: student?.gender === '女' ? '女' : '男'
+            })).filter(student => student.name);
             renderStudents();
         }
 
@@ -663,7 +754,7 @@
             document.getElementById('set-door').value = importedData.config.doorPos;
             
             let targetMirror = importedData.config.isMirrored || false;
-            generateLayout();
+            generateLayout(true);
             if (isMirrored !== targetMirror) toggleMirror();
         }
 
@@ -686,12 +777,12 @@
         customBoxes.forEach(b => b.el.remove());
         customBoxes = [];
 
-        if(importedData.boxesData) {
+        if(Array.isArray(importedData.boxesData)) {
             importedData.boxesData.forEach(boxObj => {
                 if (Array.isArray(boxObj)) { 
                     let seats = boxObj.map(id => document.getElementById(id)).filter(s => s !== null);
                     if (seats.length > 0) createCustomBox(seats);
-                } else {
+                } else if (boxObj && Array.isArray(boxObj.seats)) {
                     let seats = boxObj.seats.map(id => document.getElementById(id)).filter(s => s !== null);
                     if (seats.length > 0) createCustomBox(seats, boxObj.color);
                 }
@@ -707,6 +798,7 @@
         }
 
         updatePoolCounts();
+        return true;
     }
 
     document.getElementById('file-upload').addEventListener('change', function(e) {
@@ -754,6 +846,7 @@
 
                 if (newStudentsData.length === 0) { alert("未能提取到有效的学生名单！"); return; }
 
+                if (!backupCurrentSeatState('导入新学生名单前')) return;
                 studentsData = newStudentsData;
                 alert(`✅ 导入成功：共读取到 ${studentsData.length} 名学生！`);
                 renderStudents(); 
@@ -799,6 +892,11 @@
         sortPool(poolBoys);
         sortPool(poolGirls);
         updatePoolCounts();
+    }
+
+    function resetAllWithBackup() {
+        if (!backupCurrentSeatState('名单全体归位前')) return;
+        resetAll();
     }
 
     function toggleMirror() {
@@ -978,7 +1076,7 @@
             return;
         }
 
-        const studentInfo = studentsData.find(s => s.name === name);
+        let studentInfo = studentsData.find(s => s.name === name);
         let stuDiv = findStudentDivByName(name);
         
         if (!stuDiv) {
@@ -987,9 +1085,19 @@
                 stuDiv.id = 'stu-' + studentsData.indexOf(studentInfo);
                 stuDiv.className = 'student ' + (studentInfo.gender === '男' ? 'boy' : 'girl');
             } else {
+                const gender = prompt(`“${name}”不在当前名单中。请输入性别“男”或“女”：`, '男');
+                if (gender === null) return;
+                if (gender !== '男' && gender !== '女') {
+                    alert('性别只能填写“男”或“女”，本次录入已取消。');
+                    return;
+                }
+
+                // 新录入的人同时写入 studentsData，导出、云同步和备份时才能完整恢复。
+                studentInfo = { name, gender };
+                studentsData.push(studentInfo);
                 stuDiv = document.createElement('div');
-                stuDiv.id = 'stu-new-' + Date.now();
-                stuDiv.className = 'student boy';
+                stuDiv.id = 'stu-' + (studentsData.length - 1);
+                stuDiv.className = 'student ' + (gender === '男' ? 'boy' : 'girl');
             }
             stuDiv.draggable = true;
             stuDiv.innerText = name;
@@ -1142,7 +1250,8 @@
         return null;
     }
 
-    function generateLayout() {
+    function generateLayout(skipSafetyBackup = false) {
+        if (!skipSafetyBackup && !backupCurrentSeatState('重新生成座位前')) return;
         let wasMirrored = isMirrored;
         isMirrored = false; 
         
@@ -1271,6 +1380,7 @@
 
     function randomizeSeats() {
         if (studentsData.length === 0) { alert('名单为空，请先导入！'); return; }
+        if (!backupCurrentSeatState('随机排座前')) return;
         
         let wasMirrored = isMirrored;
         if (wasMirrored) toggleMirror(); 
@@ -1287,8 +1397,9 @@
         let boys = Array.from(poolBoys.querySelectorAll('.student'));
         let girls = Array.from(poolGirls.querySelectorAll('.student'));
 
-        boys.sort(() => Math.random() - 0.5);
-        girls.sort(() => Math.random() - 0.5);
+        // 使用无偏洗牌，保证每位学生落在任意位置的概率一致。
+        ClassTools.shuffleInPlace(boys);
+        ClassTools.shuffleInPlace(girls);
 
         allSeats.forEach(seat => {
             let r = parseInt(seat.dataset.row);
@@ -1311,6 +1422,7 @@
     }
 
     function rotateGroups() {
+        if (!backupCurrentSeatState('小组轮换前')) return;
         let wasMirrored = isMirrored;
         if (wasMirrored) toggleMirror(); 
 
@@ -1855,8 +1967,9 @@
         reader.onload = function(e) {
             try {
                 let importedData = JSON.parse(e.target.result);
-                applyImportedData(importedData);
-                alert('✅ 成功读取本地排座文件并完美还原现场！');
+                if (applyImportedData(importedData) !== false) {
+                    alert('✅ 成功读取本地排座文件并完美还原现场！');
+                }
             } catch (err) {
                 alert('读取文件失败，请确保导入的是通过本系统生成的 `.json` 排座记录文件！');
             }
@@ -1865,7 +1978,7 @@
         e.target.value = '';
     });
 
-    generateLayout();
+    generateLayout(true);
 
 </script>
 

@@ -3,7 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://api.github.com; img-src 'self' data: blob:; object-src 'none'; base-uri 'none'; form-action 'self'">
     <title>班级日志笔记本</title>
+    <script src="./shared.js"></script>
     <style>
         :root {
             --paper-color: #ffffff;
@@ -213,6 +215,18 @@
             color: var(--text-color);
         }
 
+        .github-settings select {
+            width: 100%;
+            margin: 8px 0 10px;
+            padding: 10px 12px;
+            box-sizing: border-box;
+            border: 1px solid var(--line-color);
+            border-radius: 8px;
+            background: #ffffff;
+            font-family: inherit;
+            color: var(--text-color);
+        }
+
         .github-settings label {
             display: block;
             margin-bottom: 6px;
@@ -262,6 +276,37 @@
         .btn-push:hover {
             background-color: #115022;
             box-shadow: 0 4px 12px rgba(26, 108, 48, 0.2);
+        }
+
+        /* 本地安全备份区：危险操作前自动留存快照，避免误覆盖后无法恢复 */
+        .backup-panel {
+            margin-top: 18px;
+            padding-top: 16px;
+            border-top: 1px solid var(--line-color);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .backup-hint {
+            margin-top: 5px;
+            color: var(--on-surface-variant);
+            line-height: 1.5;
+        }
+
+        .btn-backup {
+            background-color: #d3e3fd;
+            color: #041e49;
+            padding: 10px 16px;
+            font-size: 14px;
+            border: none;
+            border-radius: 9999px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+
+        .btn-backup:disabled {
+            cursor: not-allowed;
+            opacity: 0.55;
         }
 
         /* 右侧书写区 */
@@ -489,7 +534,7 @@
 </head>
 <body>
 
-    <button class="top-left-btn" onclick="document.getElementById('tokenModal').classList.remove('hidden')">☰</button>
+    <button class="top-left-btn" aria-label="打开云端同步与备份设置" onclick="document.getElementById('tokenModal').classList.remove('hidden')">☰</button>
 
     <div class="notebook">
         <div class="binding" id="binding"></div>
@@ -562,6 +607,12 @@
                 <input type="text" id="ghPath" placeholder="六4.json" value="六4.json">
                 <button class="btn-pull" id="btnPull" style="margin-top: 20px;">⬇️ 强制从云端拉取 (覆盖本地)</button>
                 <button class="btn-push" id="btnPushCloud" style="margin-top: 10px;">☁️ 保存至云端</button>
+                <div class="backup-panel">
+                    <strong>🛟 本地安全备份</strong>
+                    <span class="backup-hint" id="backupHint">危险操作前会自动保留最近 10 份记录。</span>
+                    <select id="backupList" aria-label="选择要恢复的本地备份"></select>
+                    <button class="btn-backup" id="btnRestoreBackup">恢复选中的备份</button>
+                </div>
             </div>
         </div>
     </div>
@@ -570,11 +621,24 @@
         // =========================================================================
         const GITHUB_OWNER = 'Dzreal'; 
         const GITHUB_REPO = 'Class-Data';   
+        const BACKUP_STORAGE_KEY = 'classLogsBackups';
+        const MAX_LOCAL_BACKUPS = 10;
         // =========================================================================
 
-        let logsData = JSON.parse(localStorage.getItem('classLogsData')) || {};
+        // 本地数据损坏时不让整个页面停止运行，后续仍可从备份或云端恢复。
+        function readLocalLogs() {
+            try {
+                return JSON.parse(localStorage.getItem('classLogsData')) || {};
+            } catch (error) {
+                console.error('本地班级日志格式损坏，已使用空数据启动。', error);
+                return {};
+            }
+        }
+
+        let logsData = readLocalLogs();
         let currentDateStr = ''; 
         let editorTimer = null;
+        let hasShownLocalSaveError = false;
 
         const editorGood = document.getElementById('editorGood');
         const editorBad = document.getElementById('editorBad');
@@ -588,6 +652,9 @@
         const statusMsg = document.getElementById('statusMsg');
         const ghTokenInput = document.getElementById('ghToken');
         const ghPathInput = document.getElementById('ghPath');
+        const backupList = document.getElementById('backupList');
+        const backupHint = document.getElementById('backupHint');
+        const btnRestoreBackup = document.getElementById('btnRestoreBackup');
 
         const bindingStr = Array(18).fill('<div class="ring"></div>').join('');
         document.getElementById('binding').innerHTML = bindingStr;
@@ -606,6 +673,10 @@
 
         function init() {
             loadGitHubConfig();
+            // 兼容没有修改时间的旧记录，不改变原有文字内容。
+            logsData = normalizeLogsData(logsData);
+            saveToLocal();
+            renderBackupList();
             const today = new Date();
             const todayStr = getFormattedDate(today);
             
@@ -622,25 +693,22 @@
                     weekday: getWeekday(dateObj),
                     weather: '☀️',
                     contentGood: '• ', 
-                    contentBad: '• '   
+                    contentBad: '• ',
+                    updatedAt: Date.now()
                 };
                 saveToLocal();
             } else {
                 if (logsData[dateStr].content !== undefined) {
                     logsData[dateStr].contentGood = logsData[dateStr].content;
                     delete logsData[dateStr].content;
+                    logsData[dateStr].updatedAt = Date.now();
                     saveToLocal();
                 }
             }
         }
 
         function escapeHtml(unsafe) {
-            return unsafe
-                 .replace(/&/g, "&amp;")
-                 .replace(/</g, "&lt;")
-                 .replace(/>/g, "&gt;")
-                 .replace(/"/g, "&quot;")
-                 .replace(/'/g, "&#039;");
+            return ClassTools.escapeHtml(unsafe);
         }
 
         searchInput.addEventListener('input', function() {
@@ -706,7 +774,7 @@
                         emojiPrefix = '🙄';
                     }
                     if (previewText) {
-                        snippetHtml = `<div class="history-snippet">${emojiPrefix} ${previewText.substring(0, 18)}...</div>`;
+                        snippetHtml = `<div class="history-snippet">${emojiPrefix} ${escapeHtml(previewText.substring(0, 18))}...</div>`;
                     }
                 }
 
@@ -715,8 +783,8 @@
                 
                 div.innerHTML = `
                     <div class="history-item-header">
-                        <span>${date} ${log.weekday}</span>
-                        <span>${log.weather}</span>
+                        <span>${escapeHtml(date)} ${escapeHtml(log.weekday)}</span>
+                        <span>${escapeHtml(log.weather)}</span>
                     </div>
                     ${snippetHtml}
                 `;
@@ -784,16 +852,26 @@
                 const weather = this.dataset.weather;
                 weatherIcons.forEach(i => i.classList.remove('active'));
                 this.classList.add('active');
-                
-                logsData[currentDateStr].weather = weather;
-                saveToLocal();
+
+                if (logsData[currentDateStr].weather !== weather) {
+                    logsData[currentDateStr].weather = weather;
+                    logsData[currentDateStr].updatedAt = Date.now();
+                    saveToLocal();
+                }
             });
         });
 
         function triggerAutoSave() {
-            logsData[currentDateStr].contentGood = editorGood.value;
-            logsData[currentDateStr].contentBad = editorBad.value;
-            saveToLocal();
+            const log = logsData[currentDateStr];
+            const hasChanges = log.contentGood !== editorGood.value || log.contentBad !== editorBad.value;
+
+            // 只有文字真的改变时才刷新修改时间，避免仅点击“同步”也被误判为最新版本。
+            if (hasChanges) {
+                log.contentGood = editorGood.value;
+                log.contentBad = editorBad.value;
+                log.updatedAt = Date.now();
+                saveToLocal();
+            }
             
             if(!searchInput.value) {
                 renderHistoryList();
@@ -805,7 +883,204 @@
         }
 
         function saveToLocal() {
-            localStorage.setItem('classLogsData', JSON.stringify(logsData));
+            try {
+                localStorage.setItem('classLogsData', JSON.stringify(logsData));
+                hasShownLocalSaveError = false;
+                return true;
+            } catch (error) {
+                console.error('班级日志本地保存失败。', error);
+                if (!hasShownLocalSaveError) {
+                    alert('⚠️ 浏览器本地空间不足，日志未能继续自动保存。请先导出或同步重要数据。');
+                    hasShownLocalSaveError = true;
+                }
+                return false;
+            }
+        }
+
+        // 将旧数据补齐为统一结构；updatedAt 为 0 表示这条旧记录没有可靠修改时间。
+        function normalizeLogsData(sourceData) {
+            const normalized = Object.create(null);
+            const safeSource = sourceData && typeof sourceData === 'object' ? sourceData : {};
+
+            Object.keys(safeSource).forEach(date => {
+                const sourceLog = safeSource[date] && typeof safeSource[date] === 'object' ? safeSource[date] : {};
+                const parsedUpdatedAt = Number(sourceLog.updatedAt);
+                normalized[date] = {
+                    ...sourceLog,
+                    date: sourceLog.date || date,
+                    weekday: sourceLog.weekday || getWeekday(new Date(date)),
+                    weather: sourceLog.weather || '☀️',
+                    contentGood: sourceLog.contentGood ?? sourceLog.content ?? '• ',
+                    contentBad: sourceLog.contentBad ?? '• ',
+                    updatedAt: Number.isFinite(parsedUpdatedAt) && parsedUpdatedAt > 0 ? parsedUpdatedAt : 0
+                };
+                delete normalized[date].content;
+            });
+
+            return normalized;
+        }
+
+        // 比较真正的日志内容，不把仅有差异的修改时间当成内容冲突。
+        function getLogContentSignature(log) {
+            return JSON.stringify({
+                date: log.date,
+                weekday: log.weekday,
+                weather: log.weather,
+                contentGood: log.contentGood,
+                contentBad: log.contentBad
+            });
+        }
+
+        function readLocalBackups() {
+            try {
+                const backups = JSON.parse(localStorage.getItem(BACKUP_STORAGE_KEY)) || [];
+                return Array.isArray(backups) ? backups : [];
+            } catch (error) {
+                console.error('本地备份列表格式损坏。', error);
+                return [];
+            }
+        }
+
+        // 在云端覆盖、合并、恢复等操作前保存完整快照，最多保留最近 10 份。
+        function createLocalBackup(reason, sourceData = logsData) {
+            const safeData = normalizeLogsData(sourceData);
+            if (Object.keys(safeData).length === 0) return true;
+
+            const backups = readLocalBackups();
+            const dataText = JSON.stringify(safeData);
+
+            // 连续操作的数据完全相同时不重复占用备份名额。
+            if (backups[0] && JSON.stringify(backups[0].data) === dataText) {
+                renderBackupList();
+                return true;
+            }
+
+            const now = Date.now();
+            const backup = {
+                id: `${now}-${Math.random().toString(36).slice(2, 8)}`,
+                createdAt: now,
+                reason,
+                data: safeData
+            };
+
+            try {
+                backups.unshift(backup);
+                localStorage.setItem(BACKUP_STORAGE_KEY, JSON.stringify(backups.slice(0, MAX_LOCAL_BACKUPS)));
+                renderBackupList();
+                return true;
+            } catch (error) {
+                console.error('本地安全备份保存失败。', error);
+                alert('⚠️ 本地存储空间不足，无法创建安全备份。为防止数据丢失，本次覆盖操作已经停止。');
+                return false;
+            }
+        }
+
+        function formatBackupTime(timestamp) {
+            return new Date(timestamp).toLocaleString('zh-CN', { hour12: false });
+        }
+
+        function renderBackupList() {
+            const backups = readLocalBackups();
+            backupList.innerHTML = '';
+
+            if (backups.length === 0) {
+                const option = document.createElement('option');
+                option.value = '';
+                option.textContent = '暂无本地安全备份';
+                backupList.appendChild(option);
+                backupList.disabled = true;
+                btnRestoreBackup.disabled = true;
+                backupHint.textContent = '危险操作前会自动保留最近 10 份记录。';
+                return;
+            }
+
+            backups.forEach(backup => {
+                const option = document.createElement('option');
+                option.value = backup.id;
+                option.textContent = `${formatBackupTime(backup.createdAt)} · ${backup.reason}`;
+                backupList.appendChild(option);
+            });
+
+            backupList.disabled = false;
+            btnRestoreBackup.disabled = false;
+            backupHint.textContent = `当前保存了 ${backups.length} 份快照，最多保留 ${MAX_LOCAL_BACKUPS} 份。`;
+        }
+
+        btnRestoreBackup.addEventListener('click', () => {
+            const backups = readLocalBackups();
+            const selectedBackup = backups.find(backup => backup.id === backupList.value);
+            if (!selectedBackup) {
+                alert('没有找到选中的本地备份。');
+                return;
+            }
+
+            const confirmed = confirm(`确定恢复 ${formatBackupTime(selectedBackup.createdAt)} 的备份吗？\n\n当前数据也会先自动保存一份，可以再次恢复。`);
+            if (!confirmed) return;
+
+            if (!createLocalBackup('恢复备份前')) return;
+            logsData = normalizeLogsData(selectedBackup.data);
+            saveToLocal();
+            renderHistoryList();
+
+            const sortedDates = Object.keys(logsData).sort((a, b) => new Date(b) - new Date(a));
+            const dateToLoad = logsData[currentDateStr] ? currentDateStr : sortedDates[0];
+            if (dateToLoad) loadLog(dateToLoad);
+
+            renderBackupList();
+            alert('✅ 已恢复选中的本地备份。');
+        });
+
+        // 合并时按每一天的修改时间选择较新版本，并把所有内容冲突交给用户确认。
+        function prepareCloudMerge(localSource, cloudSource) {
+            const localData = normalizeLogsData(localSource);
+            const cloudData = normalizeLogsData(cloudSource);
+            const mergedData = Object.create(null);
+            const conflicts = [];
+            const allDates = new Set([...Object.keys(localData), ...Object.keys(cloudData)]);
+
+            Array.from(allDates).sort().forEach(date => {
+                const localLog = localData[date];
+                const cloudLog = cloudData[date];
+
+                if (!localLog) {
+                    mergedData[date] = cloudLog;
+                    return;
+                }
+                if (!cloudLog) {
+                    mergedData[date] = localLog;
+                    return;
+                }
+
+                if (getLogContentSignature(localLog) === getLogContentSignature(cloudLog)) {
+                    mergedData[date] = localLog.updatedAt >= cloudLog.updatedAt ? localLog : cloudLog;
+                    return;
+                }
+
+                const useCloud = cloudLog.updatedAt > localLog.updatedAt;
+                mergedData[date] = useCloud ? cloudLog : localLog;
+                conflicts.push({
+                    date,
+                    selected: useCloud ? '云端' : '本地',
+                    localUpdatedAt: localLog.updatedAt,
+                    cloudUpdatedAt: cloudLog.updatedAt
+                });
+            });
+
+            return { mergedData, conflicts };
+        }
+
+        function confirmCloudMerge(conflicts) {
+            if (conflicts.length === 0) return true;
+
+            const conflictLines = conflicts.slice(0, 8).map(conflict => {
+                const timeHint = conflict.localUpdatedAt === 0 && conflict.cloudUpdatedAt === 0
+                    ? '旧记录无修改时间，暂定保留本地'
+                    : `计划保留${conflict.selected}较新版本`;
+                return `• ${conflict.date}：${timeHint}`;
+            });
+            if (conflicts.length > 8) conflictLines.push(`• 另有 ${conflicts.length - 8} 天内容不一致`);
+
+            return confirm(`发现 ${conflicts.length} 天的本地与云端内容不一致：\n\n${conflictLines.join('\n')}\n\n确定：按上述方案合并并继续上传\n取消：停止同步，所有数据保持不变`);
         }
 
         function showStatus(msg) {
@@ -822,12 +1097,12 @@
         }
 
         function loadGitHubConfig() {
-            ghTokenInput.value = localStorage.getItem('gh_token') || '';
+            ghTokenInput.value = ClassTools.loadGitHubToken(['gh_token']);
             ghPathInput.value = localStorage.getItem('gh_path') || '六4.json';
         }
 
         function saveGitHubConfig() {
-            localStorage.setItem('gh_token', ghTokenInput.value.trim());
+            ClassTools.saveGitHubToken(ghTokenInput.value.trim());
             localStorage.setItem('gh_path', ghPathInput.value.trim());
         }
 
@@ -840,6 +1115,9 @@
             if (!token || !path) {
                 alert('请先填写访问令牌(Token)和保存路径！'); return;
             }
+            if (!ClassTools.validateGitHubRelativePath(path)) {
+                alert('保存路径格式不正确。请使用类似“六4.json”或“日志/六4.json”的相对路径，不要包含特殊符号。'); return;
+            }
 
             const confirmPull = confirm('⚠️ 警告：此操作将会用云端的数据【强制覆盖】你当前浏览器内的所有记录。请确认你真的想丢弃本地未同步的修改，或者你正在一台全新设备上。');
             if (!confirmPull) return;
@@ -848,9 +1126,9 @@
             document.getElementById('btnPull').disabled = true;
 
             // 使用 encodeURIComponent 确保中文文件名也能正常请求
-            const apiUrl = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${encodeURIComponent(path)}`;
+            const apiUrl = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${ClassTools.encodeGitHubPath(path)}`;
             const headers = {
-                'Authorization': `token ${token}`,
+                'Authorization': `Bearer ${token}`,
                 'Accept': 'application/vnd.github.v3+json'
             };
 
@@ -863,7 +1141,9 @@
                     
                     const cloudData = JSON.parse(decodedContent);
                     if (Object.keys(cloudData).length > 0) {
-                        logsData = cloudData;
+                        // 强制覆盖前先留一份完整快照，即使选错文件也能从本地恢复。
+                        if (!createLocalBackup('云端强制拉取前')) return;
+                        logsData = normalizeLogsData(cloudData);
                         saveToLocal();
                         
                         // 重新初始化页面：优先展示拉取下来的【最新一天】的数据，不再强行展示空模板
@@ -908,13 +1188,16 @@
             if (!token || !path) {
                 alert('请填写 Token 和 保存路径！'); return;
             }
+            if (!ClassTools.validateGitHubRelativePath(path)) {
+                alert('保存路径格式不正确。请使用类似“六4.json”或“日志/六4.json”的相对路径，不要包含特殊符号。'); return;
+            }
 
             showStatus('正在请求云端数据...');
             document.getElementById('btnPushCloud').disabled = true;
 
-            const apiUrl = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${encodeURIComponent(path)}`;
+            const apiUrl = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${ClassTools.encodeGitHubPath(path)}`;
             const headers = {
-                'Authorization': `token ${token}`,
+                'Authorization': `Bearer ${token}`,
                 'Accept': 'application/vnd.github.v3+json',
                 'Content-Type': 'application/json'
             };
@@ -939,24 +1222,15 @@
                         console.error('云端数据格式错误，跳过合并', e);
                     }
 
-                    // 智能合并逻辑：优先保留云端数据，除非本地数据有实质性修改
-                    for (const date in cloudData) {
-                        if (!logsData[date]) {
-                            // 本地完全没有这天的记录，直接拉取云端
-                            logsData[date] = cloudData[date];
-                        } else {
-                            // 本地有这天的记录，检查是否为空白模板
-                            const localGood = (logsData[date].contentGood || '').replace(/[•\s\n\r]/g, '');
-                            const localBad = (logsData[date].contentBad || '').replace(/[•\s\n\r]/g, '');
-                            
-                            if (localGood === '' && localBad === '') {
-                                // 本地只是系统默认生成的空壳，安全替换为云端历史数据，防止覆盖清空！
-                                logsData[date] = cloudData[date];
-                            }
-                            // 如果本地有实际填写的文字，则保留本地最新修改，覆盖云端的该天数据
-                        }
+                    // 先生成可预览的合并方案；存在内容冲突时，未经确认绝不上传覆盖。
+                    const mergePlan = prepareCloudMerge(logsData, cloudData);
+                    if (!confirmCloudMerge(mergePlan.conflicts)) {
+                        showStatus('已取消同步，数据未改变');
+                        return;
                     }
-                    
+
+                    if (!createLocalBackup('云端合并前')) return;
+                    logsData = mergePlan.mergedData;
                     saveToLocal(); // 更新本地缓存
                     renderHistoryList(); // 刷新左侧列表
                     
@@ -981,6 +1255,9 @@
                     // 重新渲染当前查看的日志，以免合并云端数据后没显示出来
                     loadLog(currentDateStr);
                 } else {
+                    if (putRes.status === 409) {
+                        throw new Error('云端刚刚被另一台设备更新。请重新点击保存，让系统重新读取并合并。');
+                    }
                     throw new Error(`写入云端失败: 状态码 ${putRes.status}`);
                 }
             } catch (error) {
@@ -1024,6 +1301,7 @@
                 const badMatch = text.match(/🙄 需改进与糟心事:\n([\s\S]*)$/);
                 
                 if (goodMatch && badMatch) {
+                    if (!createLocalBackup('TXT 导入前')) return;
                     editorGood.value = goodMatch[1].trim() === '' ? '• ' : goodMatch[1];
                     editorBad.value = badMatch[1].trim() === '' ? '• ' : badMatch[1];
                     triggerAutoSave();

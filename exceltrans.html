@@ -3,8 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data: blob:; object-src 'none'; base-uri 'none'; form-action 'self'">
     <title>Excel 数据自动匹配工具</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
+    <script src="./shared.js"></script>
     <style>
         body {
             font-family: Roboto, 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -259,6 +261,7 @@
     function colToInt(colLetter) {
         if (!colLetter) return -1;
         colLetter = colLetter.toUpperCase().trim();
+        if (!/^[A-Z]+$/.test(colLetter)) return -1;
         let num = 0;
         for (let i = 0; i < colLetter.length; i++) {
             num = num * 26 + (colLetter.charCodeAt(i) - 64);
@@ -351,6 +354,12 @@
 
         const aKeyIdx = colToInt(aKeyInput.value);
         const bKeyIdx = colToInt(bKeyInput.value);
+        if (aKeyIdx < 0 || bKeyIdx < 0) {
+            if (aKeyIdx < 0) aKeyInput.classList.add('input-error');
+            if (bKeyIdx < 0) bKeyInput.classList.add('input-error');
+            alert('❌ 匹配失败：核心匹配列只能填写英文字母列号，例如 A、B 或 AA。');
+            return;
+        }
 
         const mappings = [];
         const mapRows = document.querySelectorAll('.mapping-row');
@@ -407,13 +416,18 @@
             const wbA = new ExcelJS.Workbook();
             await wbA.xlsx.load(fileABuffer);
             const wsA = wbA.worksheets[0];
+            if (!wsA || !wsB) throw new Error('工作簿中没有可读取的工作表');
 
             // 1. 构建字典 (ExcelJS 的行列是从 1 开始的，所以索引要 +1)
-            const dataMap = {};
+            const dataMap = new Map();
+            const duplicateKeys = new Set();
+            let validSourceRows = 0;
             wsB.eachRow((row, rowNumber) => {
                 const keyVal = getCellValue(row.getCell(bKeyIdx + 1));
                 if (keyVal !== null && keyVal !== "") {
-                    const name = String(keyVal).trim(); 
+                    const name = String(keyVal).trim();
+                    if (!name) return;
+                    validSourceRows++;
                     
                     const rowValues = {};
                     mappings.forEach(map => {
@@ -421,22 +435,30 @@
                         let cellVal = getCellValue(row.getCell(map.bIdx + 1));
                         rowValues[map.bIdx] = cellVal !== null ? cellVal : "";
                     });
-                    dataMap[name] = rowValues;
+                    if (dataMap.has(name)) duplicateKeys.add(name);
+                    dataMap.set(name, rowValues);
                 }
             });
 
             // 2. 写入数据到 A 文件
+            let matchedRows = 0;
+            let unmatchedRows = 0;
             wsA.eachRow((row, rowNumber) => {
                 const keyVal = getCellValue(row.getCell(aKeyIdx + 1));
                 if (keyVal !== null && keyVal !== "") {
                     const name = String(keyVal).trim();
-                    
-                    if (dataMap.hasOwnProperty(name)) {
+                    if (!name) return;
+
+                    if (dataMap.has(name)) {
+                        matchedRows++;
+                        const sourceValues = dataMap.get(name);
                         mappings.forEach(map => {
                             // 【核心】：只修改 .value，完美保留该格子原有的颜色、边框、字体等 style 属性
                             const targetCell = row.getCell(map.aIdx + 1);
-                            targetCell.value = dataMap[name][map.bIdx];
+                            targetCell.value = sourceValues[map.bIdx];
                         });
+                    } else {
+                        unmatchedRows++;
                     }
                 }
             });
@@ -454,7 +476,10 @@
             document.body.removeChild(a);
             window.URL.revokeObjectURL(url);
             
-            updateStatus("✨ 匹配成功！颜色和边框已完美保留，文件开始下载。");
+            const duplicateHint = duplicateKeys.size > 0
+                ? `；文件B有 ${duplicateKeys.size} 个重复匹配值（已采用最后一行）`
+                : '';
+            updateStatus(`✨ 处理完成：匹配 ${matchedRows} 行，未匹配 ${unmatchedRows} 行；文件B读取 ${validSourceRows} 行${duplicateHint}。文件已开始下载。`);
         } catch (error) {
             console.error(error);
             updateStatus("❌ 生成文件时出错，请检查控制台。");
