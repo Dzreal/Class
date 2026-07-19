@@ -515,12 +515,9 @@
     // === GitHub 同步参数配置 ===
     const GITHUB_OWNER = 'Dzreal'; 
     const GITHUB_REPO = 'Class-Data'; 
-    const LEGACY_GITHUB_FILE_PATH = 'seat_data.json';
-
     function getSeatDataFilePath(classListFile = currentClassListFile) {
-        if (!classListFile) return LEGACY_GITHUB_FILE_PATH;
-        const fileName = classListFile.replace(/^classeslists\//, '');
-        return `seatdata/${fileName}`;
+        const match = /^classes\/([^/]+)\/roster\.json$/i.exec(classListFile || '');
+        return match ? `classes/${match[1]}/seat.json` : '';
     }
 
     window.onload = async function() {
@@ -573,7 +570,7 @@
         } catch (e) { return null; }
     }
 
-    // 座位表与投票页共用 Class-Data/classeslists，以下方法只处理 JSON 文件。
+    // 每个班级目录下分别保存 roster.json 与 seat.json。
     async function getGitHubJsonFile(token, path) {
         const safePath = ClassTools.encodeGitHubPath(path);
         const response = await fetch(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${safePath}`, {
@@ -610,7 +607,7 @@
         return true;
     }
 
-    async function listGitHubJsonFiles(token, directory) {
+    async function listGitHubDirectories(token, directory) {
         const safePath = ClassTools.encodeGitHubPath(directory);
         const response = await fetch(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${safePath}`, {
             headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/vnd.github.v3+json' },
@@ -619,7 +616,7 @@
         if (response.status === 404) return [];
         if (!response.ok) throw new Error('读取班级列表失败');
         const data = await response.json();
-        return data.filter(item => item.type === 'file' && item.name.endsWith('.json')).map(item => item.name);
+        return data.filter(item => item.type === 'dir').map(item => item.name);
     }
 
     function getStudentReference(studentElement) {
@@ -640,6 +637,7 @@
         saveTokenLocally();
 
         if (studentsData.length === 0) { alert('当前没有数据可保存！'); return; }
+        if (!getSeatDataFilePath()) { alert('请先在设置中选择班级。'); return; }
 
         try {
             await syncCurrentRosterSilently(token);
@@ -652,7 +650,7 @@
             schemaVersion: 2,
             updatedAt: Date.now(),
             classListFile: currentClassListFile,
-            // 保留一份名单快照用于断网恢复；有统一名单时仍以 classeslists 文件为准。
+            // 座位文件保留名单快照，用于完整还原当时现场。
             studentsData: ClassTools.normalizeStudentList(studentsData),
             config: {
                 cols: document.getElementById('set-cols').value,
@@ -781,7 +779,7 @@
 
         try {
             const cloudData = await getGitHubJsonFile(token, filePath);
-            const documentData = ClassTools.normalizeStudentListDocument(cloudData, filePath.replace(/^classeslists\//, '').replace('.json', ''));
+            const documentData = ClassTools.normalizeStudentListDocument(cloudData);
             if (documentData.students.length === 0) return importedData;
 
             const mergedStudents = mergeRosterWithSeatGenders(documentData.students, importedData.studentsData);
@@ -809,15 +807,15 @@
         }
         select.innerHTML = '<option value="">正在读取班级...</option>';
         try {
-            const files = await listGitHubJsonFiles(token, 'classeslists');
+            const files = await listGitHubDirectories(token, 'classes');
             select.innerHTML = '<option value="">请选择班级...</option>';
             files.forEach(fileName => {
                 const option = document.createElement('option');
                 option.value = fileName;
-                option.textContent = fileName.replace(/\.json$/i, '');
+                option.textContent = fileName;
                 select.appendChild(option);
             });
-            const currentFileName = currentClassListFile.replace(/^classeslists\//, '');
+            const currentFileName = (/^classes\/([^/]+)\/roster\.json$/i.exec(currentClassListFile) || [])[1] || '';
             if (files.includes(currentFileName)) select.value = currentFileName;
         } catch (error) {
             select.innerHTML = '<option value="">班级读取失败</option>';
@@ -825,20 +823,14 @@
         }
     }
 
-    function rosterMatchesSeatData(rosterStudents, seatStudents) {
-        const roster = ClassTools.normalizeStudentList(rosterStudents);
-        const seatNames = new Set(ClassTools.normalizeStudentList(seatStudents).map(student => student.name));
-        const matches = roster.filter(student => seatNames.has(student.name)).length;
-        return matches >= Math.min(3, Math.ceil(roster.length * 0.5));
-    }
-
     async function applySelectedSeatClass() {
         const token = document.getElementById('github-token').value.trim();
         const fileName = document.getElementById('seatClassSelector').value;
         if (!token) { alert('⚠️ 请先输入 Token！'); return; }
+        if (!getSeatDataFilePath()) { alert('请先在设置中选择班级。'); return; }
         if (!fileName) { alert('请先选择班级。'); return; }
 
-        const filePath = `classeslists/${fileName}`;
+        const filePath = `classes/${fileName}/roster.json`;
         if (studentsData.length > 0 && filePath !== currentClassListFile
             && !confirm('切换班级会替换当前学生和座位安排，当前现场会先自动备份。确定继续吗？')) return;
 
@@ -855,10 +847,6 @@
             setCurrentClassListFile(filePath);
 
             let seatData = await getGitHubJsonFile(token, getSeatDataFilePath(filePath));
-            if (!seatData) {
-                const legacyData = await getGitHubJsonFile(token, LEGACY_GITHUB_FILE_PATH);
-                if (legacyData && rosterMatchesSeatData(mergedStudents, legacyData.studentsData)) seatData = legacyData;
-            }
 
             if (seatData) {
                 seatData = await mergeSeatDataWithCloudClass({ ...seatData, classListFile: filePath }, token);
@@ -910,7 +898,7 @@
             currentClassListFile,
             ClassTools.createStudentListDocument(
                 studentsToSave,
-                currentClassListFile.replace(/^classeslists\//, '').replace(/\.json$/i, '')
+                (/^classes\/([^/]+)\/roster\.json$/i.exec(currentClassListFile) || [])[1] || ''
             ),
             'Update current student list from seat data'
         );

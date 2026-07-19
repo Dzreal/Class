@@ -296,12 +296,22 @@
         let editingQuestionId = null; 
         const voteBackupManager = ClassTools.createJsonBackupManager('classVoteBackups', 10);
 
+        function getCurrentClassName() {
+            const match = /^classes\/([^/]+)\/roster\.json$/i.exec(appData.classListFile || '');
+            return match ? match[1] : '';
+        }
+
+        function getCurrentVoteDirectory() {
+            const className = getCurrentClassName();
+            return className ? `classes/${className}/votes` : '';
+        }
+
         function normalizeVoteData(source) {
             const safeSource = source && typeof source === 'object' ? source : {};
             return {
                 schemaVersion: 2,
                 updatedAt: Number(safeSource.updatedAt) || 0,
-                classListFile: ClassTools.validateGitHubRelativePath(safeSource.classListFile || '') ? safeSource.classListFile : '',
+                classListFile: /^classes\/[^/]+\/roster\.json$/i.test(safeSource.classListFile || '') ? safeSource.classListFile : '',
                 students: ClassTools.normalizeStudentList(safeSource.students),
                 questions: Array.isArray(safeSource.questions)
                     ? safeSource.questions
@@ -472,6 +482,19 @@
                     return data.filter(item => item.type === 'file').map(item => item.name);
                 } catch (e) {
                     console.error('获取云端列表失败: ' + e.message);
+                    return [];
+                }
+            },
+            async listDirectories(dir) {
+                if (!this.checkConfig(true)) return [];
+                try {
+                    const safePath = ClassTools.encodeGitHubPath(dir);
+                    const res = await fetch(`https://api.github.com/repos/${this.config.owner}/${this.config.repo}/contents/${safePath}`, { headers: this.headers, cache: 'no-store' });
+                    if (!res.ok) { if (res.status === 404) return []; throw new Error('获取列表失败'); }
+                    const data = await res.json();
+                    return data.filter(item => item.type === 'dir').map(item => item.name);
+                } catch (e) {
+                    console.error('获取班级列表失败: ' + e.message);
                     return [];
                 }
             },
@@ -652,7 +675,9 @@
         async function refreshPublicRecords() {
             const select = document.getElementById('publicRecordList');
             select.innerHTML = '<option value="">获取记录中...</option>';
-            const files = await GitHub.listFiles('voterecords');
+            const directory = getCurrentVoteDirectory();
+            if (!directory) { select.innerHTML = '<option value="">请先选择班级</option>'; return; }
+            const files = await GitHub.listFiles(directory);
             if (files.length === 0) {
                 select.innerHTML = '<option value="">云端暂无记录</option>';
                 return;
@@ -675,7 +700,7 @@
             const originalText = btn.innerText;
             btn.innerText = "记录拉取中..."; btn.disabled = true;
 
-            const data = await GitHub.getFile(`voterecords/${fileName}`);
+            const data = await GitHub.getFile(`${getCurrentVoteDirectory()}/${fileName}`);
             
             btn.innerText = originalText; btn.disabled = false;
 
@@ -712,7 +737,7 @@
                 try {
                     const json = ClassTools.readSpreadsheetRows(e.target.result, file.name);
 
-                    // 新建名单统一使用完整格式；旧云端名单仍由读取逻辑自动兼容。
+                    // 班级名单统一使用“学号、姓名、性别”完整格式。
                     let headerRowIndex = -1;
                     let idColumn = 0;
                     let nameColumn = 1;
@@ -759,13 +784,13 @@
                     }
 
                     if (newStudents.length > 0) {
-                        const classListFile = `classeslists/${name}.json`;
+                        const classListFile = `classes/${name}/roster.json`;
                         const classDocument = ClassTools.createStudentListDocument(newStudents, name);
                         const success = await GitHub.saveFile(classListFile, classDocument, `Add class list ${name}`);
                         if(success) {
                             if (!backupVoteWorkspace('导入新班级名单前')) return;
                             const duplicateHint = duplicateStudentIds > 0 ? `\n发现 ${duplicateStudentIds} 行重复学号，已采用最后一行。` : '';
-                            alert(`✅ 成功读取 Excel 并已将其写入 GitHub: classeslists/${name}.json${duplicateHint}`);
+                            alert(`✅ 已创建班级“${name}”，共 ${newStudents.length} 名学生。${duplicateHint}`);
                             appData = normalizeVoteData({ ...appData, students: newStudents, votes: [], classListFile, updatedAt: Date.now() });
                             saveToLocal(); updateClassStatus(); refreshCloudClasses();
                             renderStudentDropdown();
@@ -781,14 +806,12 @@
         async function refreshCloudClasses() {
             const select = document.getElementById('cloudClassList');
             select.innerHTML = '<option value="">获取中...</option>';
-            const files = await GitHub.listFiles('classeslists');
+            const files = await GitHub.listDirectories('classes');
             select.innerHTML = '<option value="">请选择班级...</option>';
             files.forEach(f => {
-                if(f.endsWith('.json')) {
-                    const opt = document.createElement('option');
-                    opt.value = f; opt.innerText = f.replace('.json', '');
-                    select.appendChild(opt);
-                }
+                const opt = document.createElement('option');
+                opt.value = f; opt.innerText = f;
+                select.appendChild(opt);
             });
         }
 
@@ -802,7 +825,7 @@
                 }
             }
 
-            const classListFile = `classeslists/${fileName}`;
+            const classListFile = `classes/${fileName}/roster.json`;
             const data = await GitHub.getFile(classListFile);
             const classDocument = ClassTools.normalizeStudentListDocument(data, fileName.replace('.json', ''));
             if(classDocument.students.length > 0) {
@@ -824,8 +847,15 @@
         async function deleteCloudClass() {
             const fileName = document.getElementById('cloudClassList').value;
             if(!fileName) { alert('请先在下拉框选择要删除的名单'); return; }
-            if(confirm(`🚨 危险操作！确定要永久删除云端名单 [${fileName.replace('.json', '')}] 吗？`)) {
-                const deletedPath = `classeslists/${fileName}`;
+            if(confirm(`🚨 危险操作！确定永久删除班级 [${fileName}] 的名单、座位和全部投票记录吗？`)) {
+                const deletedPath = `classes/${fileName}/roster.json`;
+                const voteDirectory = `classes/${fileName}/votes`;
+                const voteFiles = await GitHub.listFiles(voteDirectory);
+                for (const voteFile of voteFiles) {
+                    await GitHub.deleteFile(`${voteDirectory}/${voteFile}`, `Delete class vote ${voteFile}`);
+                }
+                const seatPath = `classes/${fileName}/seat.json`;
+                if (await GitHub.getSha(seatPath)) await GitHub.deleteFile(seatPath, `Delete class seat ${fileName}`);
                 const success = await GitHub.deleteFile(deletedPath, `Delete class list ${fileName}`);
                 if(success) { 
                     if (appData.classListFile === deletedPath) {
@@ -995,8 +1025,10 @@
                 alert('记录名称不能超过 60 个字，也不能包含 \\ / : * ? " < > | # % 等符号。');
                 return;
             }
+            const directory = getCurrentVoteDirectory();
+            if (!directory) { alert('请先选择班级。'); return; }
             
-            const success = await GitHub.saveFile(`voterecords/${name}.json`, appData, `Save vote record ${name}`);
+            const success = await GitHub.saveFile(`${directory}/${name}.json`, appData, `Save vote record ${name}`);
             if(success) {
                 alert('✅ 工作区数据已完整备份到 GitHub！');
                 document.getElementById('recordName').value = '';
@@ -1007,7 +1039,9 @@
         async function refreshCloudRecords() {
             const select = document.getElementById('cloudRecordList');
             select.innerHTML = '<option value="">获取中...</option>';
-            const files = await GitHub.listFiles('voterecords');
+            const directory = getCurrentVoteDirectory();
+            if (!directory) { select.innerHTML = '<option value="">请先选择班级</option>'; return; }
+            const files = await GitHub.listFiles(directory);
             select.innerHTML = '<option value="">请选择云端记录...</option>';
             files.forEach(f => {
                 if(f.endsWith('.json')) {
@@ -1021,7 +1055,7 @@
         async function loadCloudRecord() {
             const fileName = document.getElementById('cloudRecordList').value;
             if(!fileName) { alert('请先选择要读取的记录'); return; }
-            const data = await GitHub.getFile(`voterecords/${fileName}`);
+            const data = await GitHub.getFile(`${getCurrentVoteDirectory()}/${fileName}`);
             if(data && data.questions) { 
                 if (!backupVoteWorkspace('读取云端投票记录前')) return;
                 appData = normalizeVoteData(data);
@@ -1035,7 +1069,7 @@
             const fileName = document.getElementById('cloudRecordList').value;
             if(!fileName) { alert('请先选择要删除的记录'); return; }
             if(confirm(`🚨 危险！确定要永久删除云端记录 [${fileName.replace('.json', '')}] 吗？`)) {
-                const success = await GitHub.deleteFile(`voterecords/${fileName}`, `Delete vote record ${fileName}`);
+                const success = await GitHub.deleteFile(`${getCurrentVoteDirectory()}/${fileName}`, `Delete vote record ${fileName}`);
                 if(success) { alert('已彻底删除！'); refreshCloudRecords(); }
             }
         }

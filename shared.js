@@ -135,7 +135,7 @@
 
     function isStudentListFile(path) {
         const safePath = String(path ?? '').trim();
-        return /^classeslists\/[^/]+\.json$/i.test(safePath) && validateGitHubRelativePath(safePath);
+        return /^classes\/[^/]+\/roster\.json$/i.test(safePath) && validateGitHubRelativePath(safePath);
     }
 
     // 两个页面只记住“当前班级名单”，这是内部状态，不需要用户在排座页重复选择。
