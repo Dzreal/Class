@@ -367,11 +367,9 @@
                 <button class="btn-generate" onclick="generateLayout()">重新生成座位</button>
 
                 <div class="upload-area">
-                    <label class="upload-label" for="file-upload">📁 导入学生名单</label>
-                    <button type="button" class="upload-label" onclick="openSeatSettings()">☁️ 保存为 GitHub 班级</button>
+                    <label class="upload-label" for="file-upload">📁 导入学生名单（Excel/CSV）</label>
                     <input type="file" id="file-upload" accept=".xlsx, .xls, .csv">
-                    <div class="upload-tip">本地排座只需“姓名、性别”；如需同步到 GitHub 并供投票使用，名单还必须包含“学号”。</div>
-                    <div id="localRosterStatus" class="upload-tip">当前尚未导入本地名单。</div>
+                    <div class="upload-tip">必须包含“姓名、性别”，有“学号”列时可直接与投票名单对应</div>
                 </div>
 
             </div>
@@ -742,13 +740,7 @@
 
     function updateSeatRosterStatus() {
         const className = ClassTools.getClassNameFromRosterPath(currentClassListFile);
-        const localStatus = document.getElementById('localRosterStatus');
         const cloudStatus = document.getElementById('seatClassStatus');
-        if (localStatus) {
-            localStatus.textContent = studentsData.length > 0
-                ? `当前已载入 ${studentsData.length} 名学生${className ? `，关联 GitHub 班级“${className}”` : '，仅保存在当前设备' }。`
-                : '当前尚未导入本地名单。';
-        }
         if (cloudStatus) {
             cloudStatus.textContent = className
                 ? `当前关联 GitHub 班级：${className}`
@@ -1135,14 +1127,12 @@
                 const importedStudents = [];
                 const seenIds = new Set();
                 let duplicateIds = 0;
-                let missingIds = 0;
                 for (let rowIndex = headerRowIndex + 1; rowIndex < rows.length; rowIndex++) {
                     const row = Array.isArray(rows[rowIndex]) ? rows[rowIndex] : [];
                     const name = String(row[nameColumn] ?? '').trim();
                     const gender = String(row[genderColumn] ?? '').trim();
                     if (!name || (gender !== '男' && gender !== '女')) continue;
                     const id = idColumn === -1 ? '' : String(row[idColumn] ?? '').trim();
-                    if (!id) missingIds++;
                     if (id && seenIds.has(id)) duplicateIds++;
                     if (id) seenIds.add(id);
                     importedStudents.push({ id, name, gender });
@@ -1158,10 +1148,7 @@
                 currentSeatFileSha = null;
                 renderStudents();
                 updateSeatRosterStatus();
-
-                const notes = [];
-                if (missingIds > 0) notes.push(`${missingIds} 人没有学号，只能本地使用`);
-                alert(`✅ 已在本地导入 ${studentsData.length} 名学生。${notes.length ? `\n${notes.join('；')}。` : '\n如需供投票页使用，可在右上角设置中保存为 GitHub 班级。'}`);
+                alert(`✅ 导入成功：共读取到 ${studentsData.length} 名学生！`);
             } catch (error) {
                 console.error('学生名单导入失败', error);
                 alert('读取名单失败：' + error.message);
