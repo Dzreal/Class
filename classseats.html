@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; connect-src 'self' https://api.github.com; img-src 'self' data: blob:; object-src 'none'; base-uri 'none'; form-action 'self'">
 <title>班级排座位系统</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="./vendor/xlsx.full.min.js"></script>
 <script src="./shared.js"></script>
 
 <link rel="stylesheet" href="https://unpkg.com/mobile-drag-drop@2.3.0/default.min.css">
@@ -167,8 +167,9 @@
         .controls-row button:hover { box-shadow: 0 4px 10px rgba(0,0,0,0.15); transform: translateY(-1px); }
         
         /* 1. 基础操作类 (浅灰色 Tonal) */
-        .btn-random, .btn-rotate, .btn-mirror { background-color: #f0f2f5; color: #1a1c1e; }
-        .btn-random:hover, .btn-rotate:hover, .btn-mirror:hover { background-color: #e1e2e8; }
+        .btn-random, .btn-rotate, .btn-undo, .btn-mirror { background-color: #f0f2f5; color: #1a1c1e; }
+        .btn-random:hover, .btn-rotate:hover, .btn-undo:hover, .btn-mirror:hover { background-color: #e1e2e8; }
+        .controls-row button:disabled { opacity: 0.45; cursor: not-allowed; transform: none; box-shadow: none; }
         
         /* 2. 读取/保存记录类 (蓝色 Tonal) */
         .btn-load { background-color: #d3e4ff; color: #001c3b; }
@@ -241,7 +242,7 @@
            ========================================= */
         /* === Token 弹窗样式 === */
         .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; z-index: 2000; }
-        .modal-content { background: white; padding: 30px; border-radius: 20px; width: 90%; max-width: 500px; color: #333; position: relative; box-shadow: 0 10px 40px rgba(0,0,0,0.15); }
+        .modal-content { background: white; padding: 30px; border-radius: 20px; width: 90%; max-width: 500px; max-height: 90vh; overflow-y: auto; box-sizing: border-box; color: #333; position: relative; box-shadow: 0 10px 40px rgba(0,0,0,0.15); }
         .modal-close { position: absolute; top: 15px; right: 20px; cursor: pointer; font-size: 28px; line-height: 1; color: #666; transition: color 0.2s; user-select: none; }
         .modal-close:hover { color: #1a1c1e; }
         .hidden { display: none !important; }
@@ -333,7 +334,7 @@
 </head>
 <body>
 
-<button class="top-right-btn" aria-label="打开云端同步与备份设置" onclick="document.getElementById('tokenModal').classList.remove('hidden')">☰</button>
+<button class="top-right-btn" aria-label="打开云端同步与备份设置" onclick="openSeatSettings()">☰</button>
 
 <h1>班级座位手动排列系统</h1>
 
@@ -368,7 +369,7 @@
                 <div class="upload-area">
                     <label class="upload-label" for="file-upload">📁 导入学生名单 (Excel/CSV)</label>
                     <input type="file" id="file-upload" accept=".xlsx, .xls, .csv">
-                    <div class="upload-tip">表格内必须包含“姓名”和“性别”列</div>
+                    <div class="upload-tip">必须包含“姓名、性别”，有“学号”列时可直接与投票名单对应</div>
                 </div>
 
             </div>
@@ -403,6 +404,7 @@
             <div class="controls-row">
                 <button class="btn-random" onclick="randomizeSeats()">🎲 男女随机相间排座</button>
                 <button class="btn-rotate" onclick="rotateGroups()">🔄 S型小组轮换</button>
+                <button class="btn-undo" id="btn-undo-seat" onclick="undoLastSeatAction()" disabled>↩️ 撤销上一步</button>
                 <button class="btn-mirror" id="btn-mirror" onclick="toggleMirror()">🔄 师生视角切换</button>
                 <button class="btn-toggle-boxes" id="btn-toggle-boxes" onclick="toggleBoxes()">🔲 去除所有小组框</button>
                 <button class="btn-manual" id="btn-manual-toggle" onclick="toggleManualMode()">⌨️ 开启手动录入</button>
@@ -452,6 +454,19 @@
             </div>
             <div style="font-size: 12px; color: #8e9196; margin-top:20px; text-align:center;">请使用仅能访问 Class-Data 的细粒度 Token；数据通过 HTTPS 传输。</div>
             <div style="margin-top:18px; padding-top:16px; border-top:1px solid #e1e2e8;">
+                <div style="font-size:14px; font-weight:bold; margin-bottom:6px;">👥 与投票共用学生名单</div>
+                <div id="seatClassListHint" style="font-size:12px; color:#8e9196; margin-bottom:8px;">读取 Class-Data/classeslists 中的同一份名单。</div>
+                <select id="seatCloudClassList" aria-label="选择统一学生名单" style="width:100%; padding:10px; border:1px solid #c2c7cf; border-radius:8px; margin-bottom:8px;">
+                    <option value="">点击刷新名单</option>
+                </select>
+                <input type="text" id="seatNewClassName" placeholder="新名单名称（例如：六4）" maxlength="60" style="width:100%; box-sizing:border-box; padding:10px; border:1px solid #c2c7cf; border-radius:8px; margin-bottom:8px;">
+                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                    <button class="btn-github-load" onclick="refreshSeatCloudClasses()" style="flex:1; min-width:90px;">刷新名单</button>
+                    <button class="btn-github-load" onclick="loadSeatCloudClass()" style="flex:1; min-width:90px;">读取名单</button>
+                    <button class="btn-github-save" onclick="saveSeatCloudClass()" style="flex:1; min-width:110px;">同步当前名单</button>
+                </div>
+            </div>
+            <div style="margin-top:18px; padding-top:16px; border-top:1px solid #e1e2e8;">
                 <div style="font-size:14px; font-weight:bold; margin-bottom:8px;">🛟 本地安全备份</div>
                 <div id="seatBackupHint" style="font-size:12px; color:#8e9196; margin-bottom:8px;">读取或重排前会自动保留最近 10 份座位表。</div>
                 <select id="seatBackupList" aria-label="选择要恢复的座位备份" style="width:100%; padding:10px; border:1px solid #c2c7cf; border-radius:8px; margin-bottom:10px;"><option value="">暂无本地备份</option></select>
@@ -478,10 +493,14 @@
     let isMirrored = false; 
     let isBoxesRemoved = false; 
     let isManualMode = false; // 手动录入模式标志位
-    let savedBoxesData = [];    
+    let savedBoxesData = [];
     let customBoxes = [];
     let colorIndexTracker = 0;
     const seatBackupManager = ClassTools.createJsonBackupManager('classSeatBackups', 10);
+    const SEAT_CLASS_FILE_KEY = 'seatCurrentClassListFile';
+    let currentClassListFile = ClassTools.validateGitHubRelativePath(localStorage.getItem(SEAT_CLASS_FILE_KEY) || '')
+        ? localStorage.getItem(SEAT_CLASS_FILE_KEY)
+        : '';
     
     let draggedElement = null;
     let activeBox = null, activeHandle = null, startX, startY, startRect;
@@ -508,8 +527,15 @@
         if(savedToken) {
             document.getElementById('github-token').value = savedToken;
         }
+        setCurrentClassListFile(currentClassListFile);
         renderSeatBackupList();
+        updateUndoButton();
     };
+
+    function openSeatSettings() {
+        document.getElementById('tokenModal').classList.remove('hidden');
+        if (document.getElementById('github-token').value.trim()) refreshSeatCloudClasses(true);
+    }
 
     function saveTokenLocally() {
         let token = document.getElementById('github-token').value.trim();
@@ -529,8 +555,9 @@
         }).join(''));
     }
 
-    async function getGitHubFileSha(token) {
-        let url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${GITHUB_FILE_PATH}`;
+    async function getGitHubFileSha(token, path = GITHUB_FILE_PATH) {
+        const safePath = ClassTools.encodeGitHubPath(path);
+        let url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${safePath}`;
         try {
             let response = await fetch(url, {
                 headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/vnd.github.v3+json' }
@@ -543,6 +570,68 @@
         } catch (e) { return null; }
     }
 
+    // 座位表与投票页共用 Class-Data/classeslists，以下方法只处理 JSON 文件。
+    async function getGitHubJsonFile(token, path) {
+        const safePath = ClassTools.encodeGitHubPath(path);
+        const response = await fetch(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${safePath}`, {
+            headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/vnd.github.v3+json' },
+            cache: 'no-store'
+        });
+        if (!response.ok) {
+            if (response.status === 404) return null;
+            throw new Error('读取云端文件失败');
+        }
+        const data = await response.json();
+        return JSON.parse(decodeBase64ToUTF8(data.content));
+    }
+
+    async function saveGitHubJsonFile(token, path, content, message) {
+        const safePath = ClassTools.encodeGitHubPath(path);
+        const sha = await getGitHubFileSha(token, path);
+        const body = { message, content: encodeUTF8ToBase64(JSON.stringify(content, null, 2)) };
+        if (sha) body.sha = sha;
+
+        const response = await fetch(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${safePath}`, {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Accept': 'application/vnd.github.v3+json',
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(body)
+        });
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.message || '云端保存失败');
+        }
+        return true;
+    }
+
+    async function listGitHubJsonFiles(token, directory) {
+        const safePath = ClassTools.encodeGitHubPath(directory);
+        const response = await fetch(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${safePath}`, {
+            headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/vnd.github.v3+json' },
+            cache: 'no-store'
+        });
+        if (!response.ok) {
+            if (response.status === 404) return [];
+            throw new Error('读取云端名单目录失败');
+        }
+        const data = await response.json();
+        return data.filter(item => item.type === 'file' && item.name.endsWith('.json')).map(item => item.name);
+    }
+
+    function getStudentReference(studentElement) {
+        return studentElement?.dataset?.studentId || studentElement?.id || '';
+    }
+
+    function findStudentElementByReference(reference) {
+        const safeReference = String(reference ?? '');
+        return Array.from(document.querySelectorAll('.student')).find(student => (
+            student.dataset.studentId === safeReference || student.id === safeReference
+        )) || null;
+    }
+
     async function saveToGitHubCloud() {
         let token = document.getElementById('github-token').value.trim();
         if (!token) { alert('⚠️ 请先输入 Token！'); return; }
@@ -552,7 +641,11 @@
         if (studentsData.length === 0) { alert('当前没有数据可保存！'); return; }
 
         let exportData = {
-            studentsData: studentsData,
+            schemaVersion: 2,
+            updatedAt: Date.now(),
+            classListFile: currentClassListFile,
+            // 保留一份名单快照用于断网恢复；有统一名单时仍以 classeslists 文件为准。
+            studentsData: ClassTools.normalizeStudentList(studentsData),
             config: {
                 cols: document.getElementById('set-cols').value,
                 rows: document.getElementById('set-rows').value,
@@ -568,7 +661,7 @@
             }))
         };
         document.querySelectorAll('.seat').forEach(seat => {
-            if (seat.children.length > 0) exportData.layout[seat.id] = seat.children[0].id;
+            if (seat.children.length > 0) exportData.layout[seat.id] = getStudentReference(seat.children[0]);
         });
 
         let jsonString = JSON.stringify(exportData);
@@ -625,6 +718,7 @@
                 let data = await response.json();
                 let jsonString = decodeBase64ToUTF8(data.content);
                 let importedData = JSON.parse(jsonString);
+                importedData = await mergeSeatDataWithCloudClass(importedData, token);
                 if (applyImportedData(importedData) !== false) {
                     alert('✅ 已从云端读取并完美还原排座！');
                 }
@@ -635,6 +729,202 @@
             alert('网络错误：无法连接到云端。如果你在国内，通常是因为网络拦截了接口 (api.github.com)，建议开启加速器后重试。\n详细报错：' + e.message);
         } finally {
             document.querySelector('.btn-github-load').innerText = '☁️ 从云端读取';
+        }
+    }
+
+    function setCurrentClassListFile(path) {
+        currentClassListFile = ClassTools.validateGitHubRelativePath(path) ? path : '';
+        if (currentClassListFile) localStorage.setItem(SEAT_CLASS_FILE_KEY, currentClassListFile);
+        else localStorage.removeItem(SEAT_CLASS_FILE_KEY);
+
+        const hint = document.getElementById('seatClassListHint');
+        if (hint) {
+            hint.textContent = currentClassListFile
+                ? `当前共用：${currentClassListFile.replace('classeslists/', '').replace('.json', '')}`
+                : '读取 Class-Data/classeslists 中的同一份名单。';
+        }
+    }
+
+    // 用座位页已有的性别补全旧投票名单；匹配顺序为学号优先、姓名兼容旧数据。
+    function mergeRosterWithSeatGenders(rosterStudents, seatStudents) {
+        const currentStudents = ClassTools.normalizeStudentList(seatStudents);
+        const byId = new Map(currentStudents.map(student => [student.id, student]));
+        const byName = new Map(currentStudents.map(student => [student.name, student]));
+        return ClassTools.normalizeStudentList(rosterStudents).map(student => {
+            const current = byId.get(student.id) || byName.get(student.name);
+            return {
+                ...student,
+                gender: student.gender || current?.gender || ''
+            };
+        });
+    }
+
+    function remapSeatLayout(layout, oldStudents, newStudents) {
+        const oldList = ClassTools.normalizeStudentList(oldStudents);
+        const newList = ClassTools.normalizeStudentList(newStudents);
+        const oldByReference = new Map();
+        oldList.forEach((student, index) => {
+            oldByReference.set(student.id, student);
+            oldByReference.set(`stu-${index}`, student);
+        });
+        const newById = new Map(newList.map(student => [student.id, student]));
+        const newByName = new Map(newList.map(student => [student.name, student]));
+        const remapped = {};
+
+        Object.entries(layout || {}).forEach(([seatId, reference]) => {
+            const oldStudent = oldByReference.get(String(reference));
+            const target = newById.get(String(reference))
+                || (oldStudent ? newById.get(oldStudent.id) || newByName.get(oldStudent.name) : null);
+            if (target) remapped[seatId] = target.id;
+        });
+        return remapped;
+    }
+
+    async function mergeSeatDataWithCloudClass(importedData, token) {
+        const filePath = ClassTools.validateGitHubRelativePath(importedData?.classListFile || '')
+            ? importedData.classListFile
+            : '';
+        if (!filePath) return importedData;
+
+        try {
+            const cloudData = await getGitHubJsonFile(token, filePath);
+            const documentData = ClassTools.normalizeStudentListDocument(cloudData, filePath.replace(/^classeslists\//, '').replace('.json', ''));
+            if (documentData.students.length === 0) return importedData;
+
+            const mergedStudents = mergeRosterWithSeatGenders(documentData.students, importedData.studentsData);
+            if (mergedStudents.some(student => !student.gender)) return importedData;
+            setCurrentClassListFile(filePath);
+            return {
+                ...importedData,
+                schemaVersion: 2,
+                classListFile: filePath,
+                studentsData: mergedStudents,
+                layout: remapSeatLayout(importedData.layout, importedData.studentsData, mergedStudents)
+            };
+        } catch (error) {
+            console.warn('统一名单暂时无法读取，已使用座位文件内的安全快照。', error);
+            return importedData;
+        }
+    }
+
+    async function refreshSeatCloudClasses(silent = false) {
+        const token = document.getElementById('github-token').value.trim();
+        if (!token) {
+            if (!silent) alert('⚠️ 请先输入 Token！');
+            return;
+        }
+        saveTokenLocally();
+
+        const select = document.getElementById('seatCloudClassList');
+        select.innerHTML = '<option value="">正在读取...</option>';
+        try {
+            const files = await listGitHubJsonFiles(token, 'classeslists');
+            select.innerHTML = '<option value="">请选择统一学生名单...</option>';
+            files.forEach(fileName => {
+                const option = document.createElement('option');
+                option.value = fileName;
+                option.textContent = fileName.replace('.json', '');
+                select.appendChild(option);
+            });
+            const currentFileName = currentClassListFile.replace(/^classeslists\//, '');
+            if (files.includes(currentFileName)) select.value = currentFileName;
+            setCurrentClassListFile(currentClassListFile);
+        } catch (error) {
+            select.innerHTML = '<option value="">读取失败，请重试</option>';
+            if (!silent) alert('读取统一学生名单失败：' + error.message);
+        }
+    }
+
+    async function loadSeatCloudClass() {
+        const token = document.getElementById('github-token').value.trim();
+        const fileName = document.getElementById('seatCloudClassList').value;
+        if (!token) { alert('⚠️ 请先输入 Token！'); return; }
+        if (!fileName) { alert('请先选择要读取的学生名单。'); return; }
+
+        try {
+            const filePath = `classeslists/${fileName}`;
+            const cloudData = await getGitHubJsonFile(token, filePath);
+            const documentData = ClassTools.normalizeStudentListDocument(cloudData, fileName.replace('.json', ''));
+            if (documentData.students.length === 0) throw new Error('名单为空或格式不正确');
+
+            const mergedStudents = mergeRosterWithSeatGenders(documentData.students, studentsData);
+            const missingGenderCount = mergedStudents.filter(student => !student.gender).length;
+            if (missingGenderCount > 0) {
+                alert(`这份旧名单中有 ${missingGenderCount} 人没有性别。\n请先读取原座位云端数据，或导入含“姓名、性别”的 Excel，再同步当前名单。`);
+                return;
+            }
+
+            if (!backupCurrentSeatState('读取统一学生名单前')) return;
+            const currentState = collectCurrentSeatState();
+            const remappedLayout = remapSeatLayout(currentState.layout, studentsData, mergedStudents);
+            setCurrentClassListFile(filePath);
+            applyImportedData({
+                ...currentState,
+                schemaVersion: 2,
+                classListFile: filePath,
+                studentsData: mergedStudents,
+                layout: remappedLayout
+            }, true);
+            alert(`✅ 已读取与投票共用的“${fileName.replace('.json', '')}”名单，共 ${mergedStudents.length} 人。`);
+        } catch (error) {
+            alert('读取统一学生名单失败：' + error.message);
+        }
+    }
+
+    async function saveSeatCloudClass() {
+        const token = document.getElementById('github-token').value.trim();
+        if (!token) { alert('⚠️ 请先输入 Token！'); return; }
+        if (studentsData.length === 0) { alert('当前没有学生名单可以同步。'); return; }
+
+        const selectedFile = document.getElementById('seatCloudClassList').value;
+        const newClassName = document.getElementById('seatNewClassName').value.trim().replace(/\.json$/i, '');
+        let fileName = selectedFile;
+        if (!fileName && newClassName) {
+            if (!ClassTools.validateCloudFileName(newClassName)) {
+                alert('名单名称不能超过 60 个字，也不能包含路径特殊符号。');
+                return;
+            }
+            fileName = `${newClassName}.json`;
+        }
+        if (!fileName) { alert('请选择已有名单，或填写一个新名单名称。'); return; }
+        if (studentsData.some(student => student.gender !== '男' && student.gender !== '女')) {
+            alert('当前名单中仍有学生未设置性别，暂时不能同步。');
+            return;
+        }
+        if (selectedFile && !confirm(`确定用当前座位页的 ${studentsData.length} 名学生更新“${fileName.replace('.json', '')}”吗？投票系统会共用这份名单。`)) return;
+
+        try {
+            const filePath = `classeslists/${fileName}`;
+            const previousState = collectCurrentSeatState();
+            const previousStudents = ClassTools.normalizeStudentList(studentsData);
+            let studentsToSave = previousStudents;
+
+            // 更新已有投票名单时保留其真实学号；旧座位文件只有姓名也不会覆盖身份编号。
+            if (selectedFile) {
+                const existingCloudData = await getGitHubJsonFile(token, filePath);
+                const existingDocument = ClassTools.normalizeStudentListDocument(existingCloudData, fileName.replace('.json', ''));
+                if (existingDocument.students.length > 0) {
+                    studentsToSave = ClassTools.preserveStudentIdsFromReference(previousStudents, existingDocument.students);
+                }
+            }
+
+            if (!backupCurrentSeatState('同步统一学生名单前')) return;
+            const classDocument = ClassTools.createStudentListDocument(studentsToSave, fileName.replace('.json', ''));
+            await saveGitHubJsonFile(token, filePath, classDocument, `Update shared class list ${fileName}`);
+            setCurrentClassListFile(filePath);
+            applyImportedData({
+                ...previousState,
+                schemaVersion: 2,
+                classListFile: filePath,
+                studentsData: studentsToSave,
+                layout: remapSeatLayout(previousState.layout, previousStudents, studentsToSave)
+            }, true);
+            document.getElementById('seatNewClassName').value = '';
+            await refreshSeatCloudClasses(true);
+            document.getElementById('seatCloudClassList').value = fileName;
+            alert(`✅ 已同步统一学生名单。投票页和座位页现在共用“${fileName.replace('.json', '')}”。`);
+        } catch (error) {
+            alert('同步统一学生名单失败：' + error.message);
         }
     }
 
@@ -663,12 +953,15 @@
         const layout = {};
         document.querySelectorAll('.seat').forEach(seat => {
             if (seat.children.length > 0 && seat.children[0].classList.contains('student')) {
-                layout[seat.id] = seat.children[0].id;
+                layout[seat.id] = getStudentReference(seat.children[0]);
             }
         });
 
         return {
-            studentsData,
+            schemaVersion: 2,
+            updatedAt: Date.now(),
+            classListFile: currentClassListFile,
+            studentsData: ClassTools.normalizeStudentList(studentsData),
             config: {
                 cols: document.getElementById('set-cols').value,
                 rows: document.getElementById('set-rows').value,
@@ -712,6 +1005,7 @@
             select.disabled = true;
             restoreButton.disabled = true;
             hint.textContent = '读取或重排前会自动保留最近 10 份座位表。';
+            updateUndoButton();
             return;
         }
 
@@ -724,6 +1018,33 @@
         select.disabled = false;
         restoreButton.disabled = false;
         hint.textContent = `当前有 ${backups.length} 份快照，最多保留 ${seatBackupManager.maxBackups} 份。`;
+        updateUndoButton();
+    }
+
+    function updateUndoButton() {
+        const button = document.getElementById('btn-undo-seat');
+        if (!button) return;
+        const latestBackup = seatBackupManager.list()[0];
+        button.disabled = !latestBackup;
+        button.title = latestBackup ? `恢复到：${latestBackup.reason}` : '当前没有可以撤销的操作';
+    }
+
+    function undoLastSeatAction() {
+        const latestBackup = seatBackupManager.list()[0];
+        if (!latestBackup) { alert('当前没有可以撤销的操作。'); return; }
+
+        try {
+            applyImportedData(latestBackup.data, true);
+            seatBackupManager.remove(latestBackup.id);
+            renderSeatBackupList();
+
+            const button = document.getElementById('btn-undo-seat');
+            const normalText = '↩️ 撤销上一步';
+            button.textContent = `✅ 已撤销：${latestBackup.reason}`;
+            setTimeout(() => { button.textContent = normalText; }, 1400);
+        } catch (error) {
+            alert('撤销失败：' + error.message);
+        }
     }
 
     function restoreSeatBackup() {
@@ -740,10 +1061,15 @@
         if (!importedData || !Array.isArray(importedData.studentsData)) throw new Error('座位数据格式不完整');
         if (!skipSafetyBackup && !backupCurrentSeatState('读取新座位数据前')) return false;
         if(importedData.studentsData) {
-            studentsData = importedData.studentsData.slice(0, 500).map(student => ({
-                name: String(student?.name ?? '').trim().slice(0, 100),
-                gender: student?.gender === '女' ? '女' : '男'
-            })).filter(student => student.name);
+            studentsData = ClassTools.normalizeStudentList(importedData.studentsData);
+            if (studentsData.some(student => student.gender !== '男' && student.gender !== '女')) {
+                throw new Error('学生名单中存在未填写性别的学生');
+            }
+            setCurrentClassListFile(
+                ClassTools.validateGitHubRelativePath(importedData.classListFile || '')
+                    ? importedData.classListFile
+                    : ''
+            );
             renderStudents();
         }
 
@@ -755,7 +1081,7 @@
             
             let targetMirror = importedData.config.isMirrored || false;
             generateLayout(true);
-            if (isMirrored !== targetMirror) toggleMirror();
+            if (isMirrored !== targetMirror) toggleMirror(true);
         }
 
         if(importedData.deletedSeatIds) {
@@ -769,7 +1095,7 @@
             for (let seatId in importedData.layout) {
                 let stuId = importedData.layout[seatId];
                 let seat = document.getElementById(seatId);
-                let stu = document.getElementById(stuId);
+                let stu = findStudentElementByReference(stuId);
                 if (seat && stu) seat.appendChild(stu);
             }
         }
@@ -802,27 +1128,26 @@
     }
 
     document.getElementById('file-upload').addEventListener('change', function(e) {
+        const fileInput = e.currentTarget;
         let file = e.target.files[0];
         if (!file) return;
 
         let reader = new FileReader();
         reader.onload = function(e) {
             try {
-                let data = new Uint8Array(e.target.result);
-                let workbook = XLSX.read(data, {type: 'array'});
-                let firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-                let jsonData = XLSX.utils.sheet_to_json(firstSheet, {header: 1});
+                let jsonData = ClassTools.readSpreadsheetRows(e.target.result, file.name);
                 
-                let nameCol = -1, genderCol = -1;
+                let idCol = -1, nameCol = -1, genderCol = -1;
                 let headerRowIndex = -1;
                 
                 for(let i = 0; i < Math.min(10, jsonData.length); i++) {
                     let row = jsonData[i];
                     if(!row) continue;
                     for(let j = 0; j < row.length; j++) {
-                        let cellValue = String(row[j] || '').trim();
-                        if(cellValue === '姓名') nameCol = j;
-                        if(cellValue === '性别') genderCol = j;
+                        let cellValue = ClassTools.normalizeSpreadsheetHeader(row[j]);
+                        if(['学号', '编号', '学生编号', 'id', 'studentid'].includes(cellValue)) idCol = j;
+                        if(['姓名', '名字', '学生姓名'].includes(cellValue)) nameCol = j;
+                        if(['性别', '学生性别'].includes(cellValue)) genderCol = j;
                     }
                     if(nameCol !== -1 && genderCol !== -1) { headerRowIndex = i; break; }
                 }
@@ -839,7 +1164,8 @@
                         let name = String(row[nameCol]).trim();
                         let gender = String(row[genderCol]).trim();
                         if(name !== '' && (gender === '男' || gender === '女')) {
-                            newStudentsData.push({name: name, gender: gender});
+                            const id = idCol !== -1 ? String(row[idCol] ?? '').trim() : '';
+                            newStudentsData.push({id, name, gender});
                         }
                     }
                 }
@@ -847,11 +1173,15 @@
                 if (newStudentsData.length === 0) { alert("未能提取到有效的学生名单！"); return; }
 
                 if (!backupCurrentSeatState('导入新学生名单前')) return;
-                studentsData = newStudentsData;
+                studentsData = ClassTools.normalizeStudentList(newStudentsData);
                 alert(`✅ 导入成功：共读取到 ${studentsData.length} 名学生！`);
                 renderStudents(); 
             } catch (err) {
+                console.error('学生名单导入失败', err);
                 alert("读取文件发生错误，请上传正确的 Excel/CSV 文件！");
+            } finally {
+                // 清空文件框，允许修正内容后再次选择同一个文件。
+                fileInput.value = '';
             }
         };
         reader.readAsArrayBuffer(file);
@@ -862,9 +1192,11 @@
         poolBoys.innerHTML = '<h3>男生名单</h3>';
         poolGirls.innerHTML = '<h3>女生名单</h3>';
 
+        studentsData = ClassTools.normalizeStudentList(studentsData);
         studentsData.forEach((student, index) => {
             let stuDiv = document.createElement('div');
             stuDiv.id = 'stu-' + index;
+            stuDiv.dataset.studentId = student.id;
             stuDiv.className = 'student ' + (student.gender === '男' ? 'boy' : 'girl');
             stuDiv.draggable = true;
             stuDiv.innerText = student.name;
@@ -899,7 +1231,8 @@
         resetAll();
     }
 
-    function toggleMirror() {
+    function toggleMirror(skipSafetyBackup = false) {
+        if (!skipSafetyBackup && !backupCurrentSeatState('切换师生视角前')) return;
         isMirrored = !isMirrored;
         
         let btn = document.getElementById('btn-mirror');
@@ -958,6 +1291,7 @@
     }
     
     function toggleBoxes() {
+        if (!backupCurrentSeatState(isBoxesRemoved ? '恢复小组框前' : '去除小组框前')) return;
         let btn = document.getElementById('btn-toggle-boxes');
         
         if (!isBoxesRemoved) {
@@ -1014,6 +1348,7 @@
     });
 
     function createSeatInput(seat) {
+        if (!backupCurrentSeatState('手动调整座位前')) return;
         // 如果已经有输入框在运行，先确认掉它
         const existingInput = document.querySelector('.seat-input');
         if (existingInput) {
@@ -1083,6 +1418,7 @@
             if (studentInfo) {
                 stuDiv = document.createElement('div');
                 stuDiv.id = 'stu-' + studentsData.indexOf(studentInfo);
+                stuDiv.dataset.studentId = studentInfo.id;
                 stuDiv.className = 'student ' + (studentInfo.gender === '男' ? 'boy' : 'girl');
             } else {
                 const gender = prompt(`“${name}”不在当前名单中。请输入性别“男”或“女”：`, '男');
@@ -1093,10 +1429,15 @@
                 }
 
                 // 新录入的人同时写入 studentsData，导出、云同步和备份时才能完整恢复。
-                studentInfo = { name, gender };
+                studentInfo = ClassTools.normalizeStudentList([{
+                    id: `manual-${Date.now()}`,
+                    name,
+                    gender
+                }])[0];
                 studentsData.push(studentInfo);
                 stuDiv = document.createElement('div');
                 stuDiv.id = 'stu-' + (studentsData.length - 1);
+                stuDiv.dataset.studentId = studentInfo.id;
                 stuDiv.className = 'student ' + (gender === '男' ? 'boy' : 'girl');
             }
             stuDiv.draggable = true;
@@ -1325,6 +1666,7 @@
 
                     seatDiv.oncontextmenu = function(e) {
                         e.preventDefault();
+                        if (!backupCurrentSeatState('隐藏座位前')) return;
                         if (this.children.length > 0) {
                             let stu = this.children[0];
                             let correctPool = stu.classList.contains('boy') ? poolBoys : poolGirls;
@@ -1337,6 +1679,7 @@
 
                     seatDiv.ondblclick = function(e) {
                         if (this.classList.contains('deleted')) {
+                            if (!backupCurrentSeatState('恢复座位前')) return;
                             this.classList.remove('deleted');
                         }
                     };
@@ -1374,7 +1717,7 @@
             }
         });
 
-        if (wasMirrored) toggleMirror();
+        if (wasMirrored) toggleMirror(true);
         updatePoolCounts();
     }
 
@@ -1383,7 +1726,7 @@
         if (!backupCurrentSeatState('随机排座前')) return;
         
         let wasMirrored = isMirrored;
-        if (wasMirrored) toggleMirror(); 
+        if (wasMirrored) toggleMirror(true);
 
         resetAll(); 
 
@@ -1417,14 +1760,14 @@
             }
         });
 
-        if (wasMirrored) toggleMirror(); 
+        if (wasMirrored) toggleMirror(true);
         updatePoolCounts();
     }
 
     function rotateGroups() {
         if (!backupCurrentSeatState('小组轮换前')) return;
         let wasMirrored = isMirrored;
-        if (wasMirrored) toggleMirror(); 
+        if (wasMirrored) toggleMirror(true);
 
         let doorPos = document.getElementById('set-door').value;
         let domGroups = Array.from(document.querySelectorAll('.group'));
@@ -1444,7 +1787,7 @@
         });
 
         if (allSeats.length === 0) {
-            if (wasMirrored) toggleMirror();
+            if (wasMirrored) toggleMirror(true);
             return;
         }
 
@@ -1480,12 +1823,18 @@
         sortPool(poolBoys);
         sortPool(poolGirls);
 
-        if (wasMirrored) toggleMirror(); 
+        if (wasMirrored) toggleMirror(true);
         updatePoolCounts();
     }
 
     function dragStart(e) {
         draggedElement = e.target;
+        if (e.target.classList.contains('student') && !backupCurrentSeatState('移动学生前')) {
+            e.preventDefault(); draggedElement = null; return;
+        }
+        if (e.target.id === 'rect-tool' && !backupCurrentSeatState('添加小组框前')) {
+            e.preventDefault(); draggedElement = null; return;
+        }
         setTimeout(() => { if (e.target.classList.contains('student')) e.target.classList.add('dragging'); }, 0);
         e.dataTransfer.effectAllowed = 'move';
     }
@@ -1619,9 +1968,15 @@
             touchStartX = e.touches[0].clientX;
             touchStartY = e.touches[0].clientY;
             touchDragTarget = target;
-            draggedElement = target; 
+            draggedElement = target;
 
             touchTimer = setTimeout(() => {
+                const backupReason = target.classList.contains('student') ? '移动学生前' : '添加小组框前';
+                if (!backupCurrentSeatState(backupReason)) {
+                    touchDragTarget = null;
+                    draggedElement = null;
+                    return;
+                }
                 isTouchDragging = true;
                 target.style.opacity = '0.3'; 
                 
@@ -1706,6 +2061,7 @@
         closeBtn.className = 'close-btn';
         closeBtn.innerText = '×';
         closeBtn.onclick = function() {
+            if (!backupCurrentSeatState('删除小组框前')) return;
             boxContainer.remove();
             customBoxes = customBoxes.filter(b => b.el !== boxContainer);
         };
@@ -1756,6 +2112,7 @@
 
     function startResize(e, box, pos) {
         e.preventDefault(); e.stopPropagation();
+        if (!backupCurrentSeatState('调整小组框前')) return;
         activeBox = box; activeHandle = pos;
         startX = e.touches ? e.touches[0].clientX : e.clientX;
         startY = e.touches ? e.touches[0].clientY : e.clientY;
@@ -1790,6 +2147,7 @@
 
     function startMoveBox(e, box) {
         e.preventDefault(); e.stopPropagation();
+        if (!backupCurrentSeatState('移动小组框前')) return;
         moveActiveBox = box;
         moveStartX = e.touches ? e.touches[0].clientX : e.clientX;
         moveStartY = e.touches ? e.touches[0].clientY : e.clientY;
@@ -1853,20 +2211,21 @@
         if (newlyAttached.length > 0) {
             boxTarget.attachedSeats = newlyAttached;
         }
-        boxTarget.updateLayout(); 
+        boxTarget.updateLayout();
     }
 
     function saveRecord() {
         let slot = document.getElementById('save-slot').value;
-        
-        localStorage.setItem('seat_students_' + slot, JSON.stringify(studentsData));
+
+        localStorage.setItem('seat_students_' + slot, JSON.stringify(ClassTools.normalizeStudentList(studentsData)));
+        localStorage.setItem('seat_class_file_' + slot, currentClassListFile);
 
         let config = {
             cols: document.getElementById('set-cols').value,
             rows: document.getElementById('set-rows').value,
             colsPerGroup: document.getElementById('set-colsPerGroup').value,
             doorPos: document.getElementById('set-door').value,
-            isMirrored: isMirrored  
+            isMirrored: isMirrored
         };
         localStorage.setItem('seat_config_' + slot, JSON.stringify(config));
 
@@ -1875,7 +2234,7 @@
 
         let layout = {};
         document.querySelectorAll('.seat').forEach(seat => {
-            if (seat.children.length > 0) layout[seat.id] = seat.children[0].id;
+            if (seat.children.length > 0) layout[seat.id] = getStudentReference(seat.children[0]);
         });
         localStorage.setItem('seat_history_' + slot, JSON.stringify(layout));
 
@@ -1895,6 +2254,7 @@
         let savedStudents = localStorage.getItem('seat_students_' + slot);
         let importedData = {
             studentsData: savedStudents ? JSON.parse(savedStudents) : null,
+            classListFile: localStorage.getItem('seat_class_file_' + slot) || '',
             config: JSON.parse(localStorage.getItem('seat_config_' + slot) || 'null'),
             deletedSeatIds: JSON.parse(localStorage.getItem('seat_history_deleted_' + slot) || '[]'),
             layout: JSON.parse(layoutData),
@@ -1921,7 +2281,7 @@
 
         let layout = {};
         document.querySelectorAll('.seat').forEach(seat => {
-            if (seat.children.length > 0) layout[seat.id] = seat.children[0].id;
+            if (seat.children.length > 0) layout[seat.id] = getStudentReference(seat.children[0]);
         });
 
         let boxesData = customBoxes.map(b => ({
@@ -1930,7 +2290,10 @@
         }));
 
         let exportData = {
-            studentsData: studentsData,
+            schemaVersion: 2,
+            updatedAt: Date.now(),
+            classListFile: currentClassListFile,
+            studentsData: ClassTools.normalizeStudentList(studentsData),
             config: config,
             deletedSeatIds: deletedSeatIds,
             layout: layout,

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; connect-src 'self' https://api.github.com; img-src 'self' data: blob:; object-src 'none'; base-uri 'none'; form-action 'self'">
     <title>班级投票系统</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="./vendor/xlsx.full.min.js"></script>
     <script src="./shared.js"></script>
     <style>
         * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
@@ -299,11 +299,10 @@
         function normalizeVoteData(source) {
             const safeSource = source && typeof source === 'object' ? source : {};
             return {
-                students: Array.isArray(safeSource.students)
-                    ? safeSource.students
-                        .map(student => ({ id: String(student?.id ?? '').trim(), name: String(student?.name ?? '').trim() }))
-                        .filter(student => student.id && student.name)
-                    : [],
+                schemaVersion: 2,
+                updatedAt: Number(safeSource.updatedAt) || 0,
+                classListFile: ClassTools.validateGitHubRelativePath(safeSource.classListFile || '') ? safeSource.classListFile : '',
+                students: ClassTools.normalizeStudentList(safeSource.students),
                 questions: Array.isArray(safeSource.questions)
                     ? safeSource.questions
                         .filter(question => question && Array.isArray(question.options) && question.options.length >= 2)
@@ -711,35 +710,58 @@
             const reader = new FileReader();
             reader.onload = async function(e) {
                 try {
-                    const data = new Uint8Array(e.target.result);
-                    const workbook = XLSX.read(data, {type: 'array'});
-                    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-                    if (!firstSheet) throw new Error('Excel 中没有可读取的工作表');
-                    const json = XLSX.utils.sheet_to_json(firstSheet, {header: 1});
+                    const json = ClassTools.readSpreadsheetRows(e.target.result, file.name);
+
+                    // 新旧 Excel 都能读取：优先识别“学号/姓名/性别”表头，
+                    // 没有表头时继续兼容原先默认的前两列“学号、姓名”。
+                    let headerRowIndex = -1;
+                    let idColumn = 0;
+                    let nameColumn = 1;
+                    let genderColumn = -1;
+                    for (let rowIndex = 0; rowIndex < Math.min(10, json.length); rowIndex++) {
+                        const row = Array.isArray(json[rowIndex]) ? json[rowIndex] : [];
+                        const normalizedHeaders = row.map(ClassTools.normalizeSpreadsheetHeader);
+                        const foundId = normalizedHeaders.findIndex(value => ['学号', '编号', '学生编号', 'id', 'studentid'].includes(value));
+                        const foundName = normalizedHeaders.findIndex(value => ['姓名', '名字', '学生姓名'].includes(value));
+                        const foundGender = normalizedHeaders.findIndex(value => ['性别', '学生性别'].includes(value));
+                        if (foundId !== -1 && foundName !== -1) {
+                            headerRowIndex = rowIndex;
+                            idColumn = foundId;
+                            nameColumn = foundName;
+                            genderColumn = foundGender;
+                            break;
+                        }
+                    }
 
                     const studentMap = new Map();
                     let duplicateStudentIds = 0;
-                    for (let i = 0; i < json.length; i++) {
+                    for (let i = headerRowIndex + 1; i < json.length; i++) {
                         let row = json[i];
-                        if (row.length >= 2 && row[0] != null && row[1] != null) {
-                            const idStr = String(row[0]).trim();
-                            const nameStr = String(row[1]).trim();
+                        if (Array.isArray(row) && row[idColumn] != null && row[nameColumn] != null) {
+                            const idStr = String(row[idColumn]).trim();
+                            const nameStr = String(row[nameColumn]).trim();
                             if (idStr === '学号' || idStr.toLowerCase() === 'id') continue;
                             if (!idStr || !nameStr) continue;
                             if (studentMap.has(idStr)) duplicateStudentIds++;
-                            studentMap.set(idStr, { id: idStr, name: nameStr });
+                            const rawGender = genderColumn !== -1 ? String(row[genderColumn] ?? '').trim() : '';
+                            studentMap.set(idStr, {
+                                id: idStr,
+                                name: nameStr,
+                                gender: rawGender === '男' || rawGender === '女' ? rawGender : ''
+                            });
                         }
                     }
-                    const newStudents = Array.from(studentMap.values());
+                    const newStudents = ClassTools.normalizeStudentList(Array.from(studentMap.values()));
 
                     if (newStudents.length > 0) {
-                        const success = await GitHub.saveFile(`classeslists/${name}.json`, newStudents, `Add class list ${name}`);
+                        const classListFile = `classeslists/${name}.json`;
+                        const classDocument = ClassTools.createStudentListDocument(newStudents, name);
+                        const success = await GitHub.saveFile(classListFile, classDocument, `Add class list ${name}`);
                         if(success) {
                             if (!backupVoteWorkspace('导入新班级名单前')) return;
                             const duplicateHint = duplicateStudentIds > 0 ? `\n发现 ${duplicateStudentIds} 行重复学号，已采用最后一行。` : '';
                             alert(`✅ 成功读取 Excel 并已将其写入 GitHub: classeslists/${name}.json${duplicateHint}`);
-                            appData.students = newStudents;
-                            appData.votes = []; 
+                            appData = normalizeVoteData({ ...appData, students: newStudents, votes: [], classListFile, updatedAt: Date.now() });
                             saveToLocal(); updateClassStatus(); refreshCloudClasses();
                             renderStudentDropdown();
                             document.getElementById('newClassName').value = '';
@@ -775,13 +797,21 @@
                 }
             }
 
-            const data = await GitHub.getFile(`classeslists/${fileName}`);
-            if(Array.isArray(data)) {
+            const classListFile = `classeslists/${fileName}`;
+            const data = await GitHub.getFile(classListFile);
+            const classDocument = ClassTools.normalizeStudentListDocument(data, fileName.replace('.json', ''));
+            if(classDocument.students.length > 0) {
                 if (!backupVoteWorkspace('读取新班级名单前')) return;
-                appData = normalizeVoteData({ ...appData, students: data, votes: [] });
+                appData = normalizeVoteData({
+                    ...appData,
+                    students: classDocument.students,
+                    votes: [],
+                    classListFile,
+                    updatedAt: classDocument.updatedAt || Date.now()
+                });
                 saveToLocal(); updateClassStatus();
                 renderStudentDropdown();
-                document.getElementById('cloudLoadStatus').innerText = `已读取到“${fileName.replace('.json', '')}”共${data.length}人`;
+                document.getElementById('cloudLoadStatus').innerText = `已读取到“${fileName.replace('.json', '')}”共${classDocument.students.length}人`;
                 alert(`✅ 成功从云端读取名单: ${fileName.replace('.json', '')}`);
             }
         }

@@ -47,6 +47,140 @@
         return JSON.parse(JSON.stringify(data));
     }
 
+    const STUDENT_LIST_SCHEMA_VERSION = 2;
+
+    // 老座位表没有学号时，根据姓名和原顺序生成稳定的兼容 ID。
+    // 这个 ID 只负责迁移旧数据；一旦与投票名单合并，就会优先使用真实学号。
+    function createLegacyStudentId(name, index) {
+        const source = `${String(name ?? '').trim()}\u0000${index}`;
+        let hash = 2166136261;
+        for (let position = 0; position < source.length; position++) {
+            hash ^= source.charCodeAt(position);
+            hash = Math.imul(hash, 16777619);
+        }
+        return `legacy-${(hash >>> 0).toString(36)}`;
+    }
+
+    // 投票页和座位页共用这一套学生格式，同时接受旧数组和新版名单文档。
+    function normalizeStudentList(source) {
+        const rawStudents = Array.isArray(source)
+            ? source
+            : (source && Array.isArray(source.students) ? source.students : []);
+        const usedIds = new Set();
+
+        return rawStudents.slice(0, 500).map((student, index) => {
+            const name = String(student?.name ?? '').trim().slice(0, 100);
+            let id = String(student?.id ?? student?.studentId ?? '').trim().slice(0, 100);
+            if (!id) id = createLegacyStudentId(name, index);
+
+            const baseId = id;
+            let suffix = 2;
+            while (usedIds.has(id)) id = `${baseId}-${suffix++}`;
+            usedIds.add(id);
+
+            const gender = student?.gender === '男' || student?.gender === '女' ? student.gender : '';
+            return { id, name, gender };
+        }).filter(student => student.name);
+    }
+
+    function normalizeStudentListDocument(source, fallbackClassName = '') {
+        const safeSource = source && typeof source === 'object' && !Array.isArray(source) ? source : {};
+        return {
+            schemaVersion: STUDENT_LIST_SCHEMA_VERSION,
+            className: String(safeSource.className ?? fallbackClassName).trim().slice(0, 60),
+            updatedAt: Number(safeSource.updatedAt) || 0,
+            students: normalizeStudentList(source)
+        };
+    }
+
+    // 用云端已有名单保留真实学号，但以当前页面的成员范围和姓名为准。
+    // 旧座位文件没有学号时会按姓名匹配；同名学生只会各匹配一次，避免复用同一身份。
+    function preserveStudentIdsFromReference(currentStudents, referenceStudents) {
+        const currentList = normalizeStudentList(currentStudents);
+        const referenceList = normalizeStudentList(referenceStudents);
+        const referenceById = new Map(referenceList.map(student => [student.id, student]));
+        const referenceByName = new Map();
+        referenceList.forEach(student => {
+            const matches = referenceByName.get(student.name) || [];
+            matches.push(student);
+            referenceByName.set(student.name, matches);
+        });
+        const usedReferenceIds = new Set();
+
+        return normalizeStudentList(currentList.map(student => {
+            let reference = referenceById.get(student.id);
+            if (reference && usedReferenceIds.has(reference.id)) reference = null;
+            if (!reference) {
+                reference = (referenceByName.get(student.name) || [])
+                    .find(candidate => !usedReferenceIds.has(candidate.id));
+            }
+            if (reference) usedReferenceIds.add(reference.id);
+            return {
+                ...student,
+                id: reference?.id || student.id,
+                gender: student.gender || reference?.gender || ''
+            };
+        }));
+    }
+
+    function createStudentListDocument(students, className = '') {
+        return {
+            schemaVersion: STUDENT_LIST_SCHEMA_VERSION,
+            className: String(className ?? '').trim().slice(0, 60),
+            updatedAt: Date.now(),
+            students: normalizeStudentList(students)
+        };
+    }
+
+    function normalizeSpreadsheetHeader(value) {
+        return String(value ?? '')
+            .replace(/^\uFEFF/, '')
+            .replace(/[\s：:]/g, '')
+            .trim()
+            .toLowerCase();
+    }
+
+    // Windows/Excel 导出的 CSV 既可能是 UTF-8，也可能是 GBK（GB18030）。
+    // 两种编码都尝试，并优先采用能识别出学生名单列头的结果。
+    function readSpreadsheetRows(arrayBuffer, fileName = '') {
+        if (!global.XLSX) throw new Error('Excel 解析组件尚未加载，请刷新页面后重试');
+
+        const workbookToRows = workbook => {
+            const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+            if (!firstSheet) throw new Error('文件中没有可读取的工作表');
+            return global.XLSX.utils.sheet_to_json(firstSheet, { header: 1, raw: false, defval: '' });
+        };
+        const parseText = text => workbookToRows(global.XLSX.read(
+            String(text || '').replace(/^\uFEFF/, ''),
+            { type: 'string', raw: true }
+        ));
+
+        if (/\.csv$/i.test(String(fileName || ''))) {
+            const bytes = new Uint8Array(arrayBuffer);
+            const candidates = [];
+            for (const encoding of ['utf-8', 'gb18030']) {
+                try {
+                    const text = new TextDecoder(encoding).decode(bytes);
+                    const rows = parseText(text);
+                    const firstRows = rows.slice(0, 10).flat().map(normalizeSpreadsheetHeader);
+                    const headerScore = firstRows.filter(value => [
+                        'id', 'studentid', '学号', '编号', '学生编号',
+                        '姓名', '名字', '学生姓名', '性别', '学生性别'
+                    ].includes(value)).length;
+                    const replacementPenalty = (text.match(/�/g) || []).length;
+                    candidates.push({ rows, score: headerScore * 100 - replacementPenalty });
+                } catch (error) {
+                    console.warn(`使用 ${encoding} 解析 CSV 失败`, error);
+                }
+            }
+            if (candidates.length === 0) throw new Error('无法识别 CSV 文件编码');
+            candidates.sort((a, b) => b.score - a.score);
+            return candidates[0].rows;
+        }
+
+        return workbookToRows(global.XLSX.read(new Uint8Array(arrayBuffer), { type: 'array' }));
+    }
+
     const SHARED_TOKEN_KEY = 'classToolsGitHubToken';
 
     // 三个工具共用一份 Token，并自动迁移旧版本使用的不同存储名称。
@@ -111,16 +245,36 @@
             return backup ? cloneJson(backup) : null;
         }
 
-        return Object.freeze({ list, snapshot, get, maxBackups });
+        // “撤销上一步”成功恢复后移除已使用的快照，连续点击即可逐步往回撤销。
+        function remove(id) {
+            try {
+                const backups = list();
+                const remaining = backups.filter(item => item.id !== id);
+                localStorage.setItem(storageKey, JSON.stringify(remaining));
+                return remaining.length !== backups.length;
+            } catch (error) {
+                console.error(`移除本地备份失败：${storageKey}`, error);
+                return false;
+            }
+        }
+
+        return Object.freeze({ list, snapshot, get, remove, maxBackups });
     }
 
     global.ClassTools = Object.freeze({
+        createStudentListDocument,
         createJsonBackupManager,
         encodeGitHubPath,
         escapeHtml,
         loadGitHubToken,
+        normalizeStudentList,
+        normalizeStudentListDocument,
+        normalizeSpreadsheetHeader,
+        preserveStudentIdsFromReference,
+        readSpreadsheetRows,
         saveGitHubToken,
         shuffleInPlace,
+        studentListSchemaVersion: STUDENT_LIST_SCHEMA_VERSION,
         validateCloudFileName,
         validateGitHubRelativePath
     });
