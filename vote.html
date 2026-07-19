@@ -295,22 +295,23 @@
         let appData = { students: [], questions: [], votes: [] };
         let editingQuestionId = null; 
         const voteBackupManager = ClassTools.createJsonBackupManager('classVoteBackups', 10);
+        const VOTE_CLASS_SELECTION_KEY = 'classVoteCurrentRoster';
 
         function getCurrentClassName() {
-            const match = /^classes\/([^/]+)\/roster\.json$/i.exec(appData.classListFile || '');
-            return match ? match[1] : '';
+            return ClassTools.getClassNameFromRosterPath(appData.classListFile);
         }
 
         function getCurrentVoteDirectory() {
             const className = getCurrentClassName();
-            return className ? `classes/${className}/votes` : '';
+            return ClassTools.getClassDataPaths(className)?.votes || '';
         }
 
         function normalizeVoteData(source) {
             const safeSource = source && typeof source === 'object' ? source : {};
             return {
-                schemaVersion: 2,
+                schemaVersion: 3,
                 updatedAt: Number(safeSource.updatedAt) || 0,
+                rosterRevision: Number(safeSource.rosterRevision) || 0,
                 classListFile: /^classes\/[^/]+\/roster\.json$/i.test(safeSource.classListFile || '') ? safeSource.classListFile : '',
                 students: ClassTools.normalizeStudentList(safeSource.students),
                 questions: Array.isArray(safeSource.questions)
@@ -449,6 +450,7 @@
                     const res = await fetch(`https://api.github.com/repos/${this.config.owner}/${this.config.repo}/contents/${safePath}`, {
                         method: 'PUT', headers: this.headers, body: JSON.stringify(body)
                     });
+                    if (res.status === 409) throw new Error('云端数据已被其他设备更新，请先重新读取后再保存');
                     if (!res.ok) throw new Error(await res.text());
                     return true;
                 } catch (e) {
@@ -784,14 +786,14 @@
                     }
 
                     if (newStudents.length > 0) {
-                        const classListFile = `classes/${name}/roster.json`;
+                        const classListFile = ClassTools.getClassDataPaths(name).roster;
                         const classDocument = ClassTools.createStudentListDocument(newStudents, name);
                         const success = await GitHub.saveFile(classListFile, classDocument, `Add class list ${name}`);
                         if(success) {
                             if (!backupVoteWorkspace('导入新班级名单前')) return;
                             const duplicateHint = duplicateStudentIds > 0 ? `\n发现 ${duplicateStudentIds} 行重复学号，已采用最后一行。` : '';
                             alert(`✅ 已创建班级“${name}”，共 ${newStudents.length} 名学生。${duplicateHint}`);
-                            appData = normalizeVoteData({ ...appData, students: newStudents, votes: [], classListFile, updatedAt: Date.now() });
+                            appData = normalizeVoteData({ ...appData, students: newStudents, votes: [], classListFile, rosterRevision: classDocument.updatedAt, updatedAt: Date.now() });
                             saveToLocal(); updateClassStatus(); refreshCloudClasses();
                             renderStudentDropdown();
                             document.getElementById('newClassName').value = '';
@@ -825,7 +827,7 @@
                 }
             }
 
-            const classListFile = `classes/${fileName}/roster.json`;
+            const classListFile = ClassTools.getClassDataPaths(fileName).roster;
             const data = await GitHub.getFile(classListFile);
             const classDocument = ClassTools.normalizeStudentListDocument(data, fileName.replace('.json', ''));
             if(classDocument.students.length > 0) {
@@ -835,6 +837,7 @@
                     students: classDocument.students,
                     votes: [],
                     classListFile,
+                    rosterRevision: classDocument.updatedAt,
                     updatedAt: classDocument.updatedAt || Date.now()
                 });
                 saveToLocal(); updateClassStatus();
@@ -848,19 +851,20 @@
             const fileName = document.getElementById('cloudClassList').value;
             if(!fileName) { alert('请先在下拉框选择要删除的名单'); return; }
             if(confirm(`🚨 危险操作！确定永久删除班级 [${fileName}] 的名单、座位和全部投票记录吗？`)) {
-                const deletedPath = `classes/${fileName}/roster.json`;
-                const voteDirectory = `classes/${fileName}/votes`;
+                const paths = ClassTools.getClassDataPaths(fileName);
+                const deletedPath = paths.roster;
+                const voteDirectory = paths.votes;
                 const voteFiles = await GitHub.listFiles(voteDirectory);
                 for (const voteFile of voteFiles) {
                     await GitHub.deleteFile(`${voteDirectory}/${voteFile}`, `Delete class vote ${voteFile}`);
                 }
-                const seatPath = `classes/${fileName}/seat.json`;
+                const seatPath = paths.seat;
                 if (await GitHub.getSha(seatPath)) await GitHub.deleteFile(seatPath, `Delete class seat ${fileName}`);
                 const success = await GitHub.deleteFile(deletedPath, `Delete class list ${fileName}`);
                 if(success) { 
                     if (appData.classListFile === deletedPath) {
                         appData.classListFile = '';
-                        ClassTools.saveCurrentStudentListFile('');
+                        ClassTools.saveCurrentStudentListFile('', VOTE_CLASS_SELECTION_KEY);
                         saveToLocal();
                     }
                     alert('已彻底删除！'); 
@@ -1027,10 +1031,27 @@
             }
             const directory = getCurrentVoteDirectory();
             if (!directory) { alert('请先选择班级。'); return; }
+
+            const latestRoster = await GitHub.getFile(appData.classListFile, true);
+            if (!latestRoster) { alert('保存前无法确认最新班级名单，请检查网络后重试。'); return; }
+            const latestRosterRevision = ClassTools.normalizeStudentListDocument(latestRoster).updatedAt;
+            if (latestRosterRevision !== appData.rosterRevision) {
+                alert('班级名单已经更新，请重新选择当前班级后再保存投票记录。');
+                return;
+            }
             
-            const success = await GitHub.saveFile(`${directory}/${name}.json`, appData, `Save vote record ${name}`);
+            const voteRecord = {
+                schemaVersion: 3,
+                classId: getCurrentClassName(),
+                rosterRevision: appData.rosterRevision,
+                title: name,
+                updatedAt: Date.now(),
+                questions: appData.questions,
+                votes: appData.votes
+            };
+            const success = await GitHub.saveFile(`${directory}/${name}.json`, voteRecord, `Save vote record ${name}`);
             if(success) {
-                alert('✅ 工作区数据已完整备份到 GitHub！');
+                alert('✅ 投票记录已保存到 GitHub！');
                 document.getElementById('recordName').value = '';
                 refreshCloudRecords();
             }
@@ -1057,8 +1078,14 @@
             if(!fileName) { alert('请先选择要读取的记录'); return; }
             const data = await GitHub.getFile(`${getCurrentVoteDirectory()}/${fileName}`);
             if(data && data.questions) { 
+                if (data.classId !== getCurrentClassName()) { alert('该记录不属于当前班级。'); return; }
                 if (!backupVoteWorkspace('读取云端投票记录前')) return;
-                appData = normalizeVoteData(data);
+                appData = normalizeVoteData({
+                    ...data,
+                    students: appData.students,
+                    classListFile: appData.classListFile,
+                    rosterRevision: appData.rosterRevision
+                });
                 saveToLocal(); updateClassStatus(); renderQuestionList(); renderVotingInterface();
                 renderStudentDropdown();
                 alert(`✅ 成功从云端恢复投票记录: ${fileName.replace('.json', '')}`);
@@ -1279,7 +1306,7 @@
         function saveToLocal() {
             try {
                 if (appData.classListFile) {
-                    ClassTools.saveCurrentStudentListFile(appData.classListFile);
+                    ClassTools.saveCurrentStudentListFile(appData.classListFile, VOTE_CLASS_SELECTION_KEY);
                 }
                 localStorage.setItem('classVoteData', JSON.stringify(appData));
                 return true;
@@ -1295,10 +1322,10 @@
                 if (saved) {
                     appData = normalizeVoteData(JSON.parse(saved));
                 }
-                const currentClassListFile = appData.classListFile || ClassTools.loadCurrentStudentListFile();
+                const currentClassListFile = appData.classListFile || ClassTools.loadCurrentStudentListFile([], VOTE_CLASS_SELECTION_KEY);
                 if (currentClassListFile) {
                     appData.classListFile = currentClassListFile;
-                    ClassTools.saveCurrentStudentListFile(currentClassListFile);
+                    ClassTools.saveCurrentStudentListFile(currentClassListFile, VOTE_CLASS_SELECTION_KEY);
                 }
             } catch (e) { console.error("本地数据解析失败"); }
         }

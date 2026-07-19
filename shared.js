@@ -47,7 +47,7 @@
         return JSON.parse(JSON.stringify(data));
     }
 
-    const STUDENT_LIST_SCHEMA_VERSION = 2;
+    const STUDENT_LIST_SCHEMA_VERSION = 3;
     const CURRENT_STUDENT_LIST_FILE_KEY = 'classToolsCurrentStudentListFile';
 
     // 老座位表没有学号时，根据姓名和原顺序生成稳定的兼容 ID。
@@ -94,36 +94,6 @@
         };
     }
 
-    // 用云端已有名单保留真实学号，但以当前页面的成员范围和姓名为准。
-    // 旧座位文件没有学号时会按姓名匹配；同名学生只会各匹配一次，避免复用同一身份。
-    function preserveStudentIdsFromReference(currentStudents, referenceStudents) {
-        const currentList = normalizeStudentList(currentStudents);
-        const referenceList = normalizeStudentList(referenceStudents);
-        const referenceById = new Map(referenceList.map(student => [student.id, student]));
-        const referenceByName = new Map();
-        referenceList.forEach(student => {
-            const matches = referenceByName.get(student.name) || [];
-            matches.push(student);
-            referenceByName.set(student.name, matches);
-        });
-        const usedReferenceIds = new Set();
-
-        return normalizeStudentList(currentList.map(student => {
-            let reference = referenceById.get(student.id);
-            if (reference && usedReferenceIds.has(reference.id)) reference = null;
-            if (!reference) {
-                reference = (referenceByName.get(student.name) || [])
-                    .find(candidate => !usedReferenceIds.has(candidate.id));
-            }
-            if (reference) usedReferenceIds.add(reference.id);
-            return {
-                ...student,
-                id: reference?.id || student.id,
-                gender: student.gender || reference?.gender || ''
-            };
-        }));
-    }
-
     function createStudentListDocument(students, className = '') {
         return {
             schemaVersion: STUDENT_LIST_SCHEMA_VERSION,
@@ -139,8 +109,8 @@
     }
 
     // 两个页面只记住“当前班级名单”，这是内部状态，不需要用户在排座页重复选择。
-    function loadCurrentStudentListFile(legacyKeys = []) {
-        let path = localStorage.getItem(CURRENT_STUDENT_LIST_FILE_KEY) || '';
+    function loadCurrentStudentListFile(legacyKeys = [], storageKey = CURRENT_STUDENT_LIST_FILE_KEY) {
+        let path = localStorage.getItem(storageKey) || '';
         if (!isStudentListFile(path)) {
             path = '';
             for (const key of legacyKeys) {
@@ -151,16 +121,34 @@
                 }
             }
         }
-        if (path) localStorage.setItem(CURRENT_STUDENT_LIST_FILE_KEY, path);
+        if (path) localStorage.setItem(storageKey, path);
         legacyKeys.forEach(key => localStorage.removeItem(key));
         return path;
     }
 
-    function saveCurrentStudentListFile(path) {
+    function saveCurrentStudentListFile(path, storageKey = CURRENT_STUDENT_LIST_FILE_KEY) {
         const safePath = isStudentListFile(path) ? String(path).trim() : '';
-        if (safePath) localStorage.setItem(CURRENT_STUDENT_LIST_FILE_KEY, safePath);
-        else localStorage.removeItem(CURRENT_STUDENT_LIST_FILE_KEY);
+        if (safePath) localStorage.setItem(storageKey, safePath);
+        else localStorage.removeItem(storageKey);
         return safePath;
+    }
+
+    function getClassNameFromRosterPath(path) {
+        const match = /^classes\/([^/]+)\/roster\.json$/i.exec(String(path || ''));
+        return match ? match[1] : '';
+    }
+
+    function getClassDataPaths(className) {
+        const safeName = String(className || '').trim();
+        if (!validateCloudFileName(safeName)) return null;
+        const root = `classes/${safeName}`;
+        return Object.freeze({
+            className: safeName,
+            root,
+            roster: `${root}/roster.json`,
+            seat: `${root}/seat.json`,
+            votes: `${root}/votes`
+        });
     }
 
     function normalizeSpreadsheetHeader(value) {
@@ -297,12 +285,13 @@
         createJsonBackupManager,
         encodeGitHubPath,
         escapeHtml,
+        getClassDataPaths,
+        getClassNameFromRosterPath,
         loadGitHubToken,
         loadCurrentStudentListFile,
         normalizeStudentList,
         normalizeStudentListDocument,
         normalizeSpreadsheetHeader,
-        preserveStudentIdsFromReference,
         readSpreadsheetRows,
         saveCurrentStudentListFile,
         saveGitHubToken,
