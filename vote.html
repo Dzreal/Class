@@ -192,7 +192,7 @@
                     <hr style="border:0; border-top:1px dashed #c4c7c5; margin:15px 0;">
                     
                     <p style="font-size: 13px; color:#444746; margin-bottom: 5px;">【首次使用: 从 Excel 导入并存入云端】</p>
-                    <input type="file" id="excelUpload" accept=".xlsx, .xls" style="display: none;" onchange="importAndUploadExcel(event)">
+                    <input type="file" id="excelUpload" accept=".xlsx, .xls, .csv" style="display: none;" onchange="importAndUploadExcel(event)">
                     <div style="display: flex; gap: 10px;">
                         <input type="text" id="newClassName" placeholder="设定名单名称(如: 一班)" style="flex: 1;">
                         <button class="action-btn secondary" style="width: auto;" onclick="triggerExcelUpload()">导入</button>
@@ -712,8 +712,7 @@
                 try {
                     const json = ClassTools.readSpreadsheetRows(e.target.result, file.name);
 
-                    // 新旧 Excel 都能读取：优先识别“学号/姓名/性别”表头，
-                    // 没有表头时继续兼容原先默认的前两列“学号、姓名”。
+                    // 新建名单统一使用完整格式；旧云端名单仍由读取逻辑自动兼容。
                     let headerRowIndex = -1;
                     let idColumn = 0;
                     let nameColumn = 1;
@@ -724,13 +723,16 @@
                         const foundId = normalizedHeaders.findIndex(value => ['学号', '编号', '学生编号', 'id', 'studentid'].includes(value));
                         const foundName = normalizedHeaders.findIndex(value => ['姓名', '名字', '学生姓名'].includes(value));
                         const foundGender = normalizedHeaders.findIndex(value => ['性别', '学生性别'].includes(value));
-                        if (foundId !== -1 && foundName !== -1) {
+                        if (foundId !== -1 && foundName !== -1 && foundGender !== -1) {
                             headerRowIndex = rowIndex;
                             idColumn = foundId;
                             nameColumn = foundName;
                             genderColumn = foundGender;
                             break;
                         }
+                    }
+                    if (headerRowIndex === -1) {
+                        throw new Error('新名单必须同时包含“学号、姓名、性别”列头');
                     }
 
                     const studentMap = new Map();
@@ -752,6 +754,9 @@
                         }
                     }
                     const newStudents = ClassTools.normalizeStudentList(Array.from(studentMap.values()));
+                    if (newStudents.some(student => !student.gender)) {
+                        throw new Error('性别列只接受“男”或“女”，请修正后重新导入');
+                    }
 
                     if (newStudents.length > 0) {
                         const classListFile = `classeslists/${name}.json`;
