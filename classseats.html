@@ -1172,6 +1172,7 @@
                 let nameColumn = -1;
                 let genderColumn = -1;
                 let bestHeaderScore = -1;
+                let closestHeaderCandidate = null;
 
                 // 学校导出的表格经常在名单上方放班级标题、制表日期或空行。
                 // 因此不再假定第一行就是表头，而是在前 50 行中寻找最完整的一行。
@@ -1185,6 +1186,19 @@
                     const withoutHint = value.replace(/[（(【\[].*?[）)】\]]/g, '');
                     return aliases.includes(value) || aliases.includes(withoutHint);
                 });
+                const getColumnLabel = columnIndex => {
+                    if (columnIndex < 0) return '';
+                    let label = '';
+                    for (let number = columnIndex + 1; number > 0; number = Math.floor((number - 1) / 26)) {
+                        label = String.fromCharCode(65 + ((number - 1) % 26)) + label;
+                    }
+                    return `${label}列`;
+                };
+                const describeDetectedColumns = candidate => [
+                    candidate.idColumn !== -1 ? `学号（${getColumnLabel(candidate.idColumn)}）` : '',
+                    candidate.nameColumn !== -1 ? `姓名（${getColumnLabel(candidate.nameColumn)}）` : '',
+                    candidate.genderColumn !== -1 ? `性别（${getColumnLabel(candidate.genderColumn)}）` : ''
+                ].filter(Boolean);
 
                 for (let rowIndex = 0; rowIndex < Math.min(50, rows.length); rowIndex++) {
                     const row = Array.isArray(rows[rowIndex]) ? rows[rowIndex] : [];
@@ -1192,10 +1206,23 @@
                     const candidateIdColumn = findHeaderColumn(headers, headerAliases.id);
                     const candidateNameColumn = findHeaderColumn(headers, headerAliases.name);
                     const candidateGenderColumn = findHeaderColumn(headers, headerAliases.gender);
+                    const candidate = {
+                        rowIndex,
+                        idColumn: candidateIdColumn,
+                        nameColumn: candidateNameColumn,
+                        genderColumn: candidateGenderColumn,
+                        score: [candidateIdColumn, candidateNameColumn, candidateGenderColumn]
+                            .filter(column => column !== -1).length
+                    };
+
+                    // 即使没有找到完整表头，也记住识别列数最多的一行，用于准确说明缺少什么。
+                    if (candidate.score > 0 && (!closestHeaderCandidate || candidate.score > closestHeaderCandidate.score)) {
+                        closestHeaderCandidate = candidate;
+                    }
 
                     // 姓名和性别是排座所必需的；找到学号时优先采用更完整的表头行。
                     if (candidateNameColumn === -1 || candidateGenderColumn === -1) continue;
-                    const score = 2 + (candidateIdColumn !== -1 ? 1 : 0);
+                    const score = candidate.score;
                     if (score > bestHeaderScore) {
                         bestHeaderScore = score;
                         headerRowIndex = rowIndex;
@@ -1207,24 +1234,55 @@
                 }
 
                 if (headerRowIndex === -1) {
-                    throw new Error('前 50 行中没有找到包含“姓名”和“性别”的表头，请检查列名');
+                    if (!closestHeaderCandidate) {
+                        throw new Error('前 50 行中未识别到“学号、姓名、性别”表头。请检查表头文字，排座至少需要“姓名”和“性别”列。');
+                    }
+                    const detectedColumns = describeDetectedColumns(closestHeaderCandidate);
+                    const missingColumns = [
+                        closestHeaderCandidate.idColumn === -1 ? '学号' : '',
+                        closestHeaderCandidate.nameColumn === -1 ? '姓名' : '',
+                        closestHeaderCandidate.genderColumn === -1 ? '性别' : ''
+                    ].filter(Boolean);
+                    throw new Error(
+                        `第 ${closestHeaderCandidate.rowIndex + 1} 行最接近表头。\n` +
+                        `已识别：${detectedColumns.join('、')}。\n` +
+                        `未识别：${missingColumns.join('、')}。\n` +
+                        '排座至少需要“姓名”和“性别”列。'
+                    );
                 }
 
                 const importedStudents = [];
                 const seenIds = new Set();
                 let duplicateIds = 0;
+                let missingNameRows = 0;
+                let invalidGenderRows = 0;
+                let missingIdRows = 0;
                 for (let rowIndex = headerRowIndex + 1; rowIndex < rows.length; rowIndex++) {
                     const row = Array.isArray(rows[rowIndex]) ? rows[rowIndex] : [];
                     const name = String(row[nameColumn] ?? '').trim();
                     const gender = String(row[genderColumn] ?? '').trim();
-                    if (!name || (gender !== '男' && gender !== '女')) continue;
                     const id = idColumn === -1 ? '' : String(row[idColumn] ?? '').trim();
+                    // 完全空白的尾部行不计入错误统计，避免把表格预留空行误报为学生数据。
+                    if (!name && !gender && !id) continue;
+                    if (!name) missingNameRows++;
+                    if (gender !== '男' && gender !== '女') invalidGenderRows++;
+                    if (!name || (gender !== '男' && gender !== '女')) continue;
+                    if (idColumn !== -1 && !id) missingIdRows++;
                     if (id && seenIds.has(id)) duplicateIds++;
                     if (id) seenIds.add(id);
                     importedStudents.push({ id, name, gender });
                 }
 
-                if (importedStudents.length === 0) throw new Error('没有读取到有效学生');
+                if (importedStudents.length === 0) {
+                    const dataProblems = [
+                        missingNameRows > 0 ? `姓名为空 ${missingNameRows} 行` : '',
+                        invalidGenderRows > 0 ? `性别不是“男/女” ${invalidGenderRows} 行` : ''
+                    ].filter(Boolean);
+                    throw new Error(
+                        `已识别第 ${headerRowIndex + 1} 行为表头，但没有读取到有效学生。` +
+                        (dataProblems.length > 0 ? `\n发现：${dataProblems.join('；')}。` : '\n请检查表头下方是否有学生数据。')
+                    );
+                }
                 if (duplicateIds > 0) throw new Error(`发现 ${duplicateIds} 个重复学号，请修正后重新导入`);
                 if (!backupCurrentSeatState('导入新学生名单前')) return;
 
@@ -1234,7 +1292,22 @@
                 currentSeatRecordPath = '';
                 renderStudents();
                 updateSeatRosterStatus();
-                alert(`✅ 导入成功：已自动识别第 ${headerRowIndex + 1} 行为表头，共读取到 ${studentsData.length} 名学生！`);
+                const detectedColumns = describeDetectedColumns({ idColumn, nameColumn, genderColumn });
+                const importMessages = [
+                    `✅ 导入成功：已自动识别第 ${headerRowIndex + 1} 行为表头，共读取到 ${studentsData.length} 名学生！`,
+                    `已识别：${detectedColumns.join('、')}。`
+                ];
+                if (idColumn === -1) {
+                    importMessages.push('⚠️ 未识别“学号”列：可以本地排座，但不能保存为 GitHub 班级。');
+                } else if (missingIdRows > 0) {
+                    importMessages.push(`⚠️ 有 ${missingIdRows} 行未填写学号：可以本地排座，但保存 GitHub 班级前需要补全。`);
+                }
+                if (missingNameRows > 0 || invalidGenderRows > 0) {
+                    importMessages.push(
+                        `另有数据被跳过：姓名为空 ${missingNameRows} 行；性别不是“男/女” ${invalidGenderRows} 行。`
+                    );
+                }
+                alert(importMessages.join('\n'));
             } catch (error) {
                 console.error('学生名单导入失败', error);
                 alert('读取名单失败：' + error.message);
