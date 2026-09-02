@@ -113,10 +113,12 @@
         // 核心配置
         const owner = 'Dzreal';
         const repo = 'Class'; 
+        // 名称或卡片配置调整后升级缓存键，避免浏览器继续显示旧版首页文字。
+        const toolsCacheKey = 'class_tools_cache_v2';
 
         // 🛡️ 保底配置：把四大金刚写在这里。哪怕 GitHub API 彻底断连，页面也能渲染出这四个工具！
         const fallbackTools = {
-            "classseats.html": { icon: "🪑", title: "互动座位表", desc: "快速生成与调整学生座位安排，支持男女生分布与小组排列" },
+            "classseats.html": { icon: "🪑", title: "班级排座系统", desc: "快速生成与调整学生座位安排，支持男女生分布与小组排列" },
             "classjournal.html": { icon: "📖", title: "班级日志", desc: "记录与查看班级日常事务与学生情况" },
             "exceltrans.html": { icon: "📊", title: "表格数据处理", desc: "快速处理、转换与导出Excel表格数据" },
             "vote.html": { icon: "🗳️", title: "班级投票系统", desc: "支持单选多选、云端保存配置与记录的实时投票工具" }
@@ -163,7 +165,7 @@
         async function loadTools() {
             try {
                 // 优化：尝试读取短期会话缓存。用户从子页面返回时可实现瞬间秒开，且不消耗宝贵的 GitHub API 次数
-                const cachedData = sessionStorage.getItem('class_tools_cache');
+                const cachedData = sessionStorage.getItem(toolsCacheKey);
                 if (cachedData) {
                     statusMessage.style.display = 'none';
                     renderCards(JSON.parse(cachedData));
@@ -223,7 +225,7 @@
                 renderCards(cardsData);
 
                 // 优化：渲染成功后存入会话缓存，直到用户彻底关闭该页签前无需重试
-                sessionStorage.setItem('class_tools_cache', JSON.stringify(cardsData));
+                sessionStorage.setItem(toolsCacheKey, JSON.stringify(cardsData));
 
             } catch (error) {
                 console.warn("自动拉取失败，启用保底渲染模式:", error.message);

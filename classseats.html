@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; connect-src 'self' https://api.github.com; img-src 'self' data: blob:; object-src 'none'; base-uri 'none'; form-action 'self'">
-<title>班级排座位系统</title>
+<title>班级排座系统</title>
 <script src="./vendor/xlsx.full.min.js"></script>
 <script src="./shared.js"></script>
 
@@ -336,7 +336,7 @@
 
 <button class="top-right-btn" aria-label="打开云端同步与备份设置" onclick="openSeatSettings()">☰</button>
 
-<h1>班级座位手动排列系统</h1>
+<h1>班级排座系统</h1>
 
 <div class="main-container">
     <div class="left-panel">
@@ -369,7 +369,7 @@
                 <div class="upload-area">
                     <label class="upload-label" for="file-upload">📁 导入学生名单（Excel/CSV）</label>
                     <input type="file" id="file-upload" accept=".xlsx, .xls, .csv">
-                    <div class="upload-tip">必须包含“姓名、性别”，有“学号”列时可直接与投票名单对应</div>
+                    <div class="upload-tip">会自动跳过标题行并寻找“学号、姓名、性别”表头，表头不必在第一行</div>
                 </div>
 
             </div>
@@ -1171,20 +1171,44 @@
                 let idColumn = -1;
                 let nameColumn = -1;
                 let genderColumn = -1;
+                let bestHeaderScore = -1;
 
-                for (let rowIndex = 0; rowIndex < Math.min(10, rows.length); rowIndex++) {
+                // 学校导出的表格经常在名单上方放班级标题、制表日期或空行。
+                // 因此不再假定第一行就是表头，而是在前 50 行中寻找最完整的一行。
+                const headerAliases = {
+                    id: ['学号', '学生学号', '编号', '学生编号', 'id', 'studentid'],
+                    name: ['姓名', '名字', '学生姓名', '学生名字', 'name', 'studentname'],
+                    gender: ['性别', '学生性别', 'gender', 'sex']
+                };
+                const findHeaderColumn = (headers, aliases) => headers.findIndex(value => {
+                    // 兼容“姓名（必填）”“性别(男/女)”等带说明文字的常见表头。
+                    const withoutHint = value.replace(/[（(【\[].*?[）)】\]]/g, '');
+                    return aliases.includes(value) || aliases.includes(withoutHint);
+                });
+
+                for (let rowIndex = 0; rowIndex < Math.min(50, rows.length); rowIndex++) {
                     const row = Array.isArray(rows[rowIndex]) ? rows[rowIndex] : [];
                     const headers = row.map(ClassTools.normalizeSpreadsheetHeader);
-                    idColumn = headers.findIndex(value => ['学号', '编号', '学生编号', 'id', 'studentid'].includes(value));
-                    nameColumn = headers.findIndex(value => ['姓名', '名字', '学生姓名'].includes(value));
-                    genderColumn = headers.findIndex(value => ['性别', '学生性别'].includes(value));
-                    if (nameColumn !== -1 && genderColumn !== -1) {
+                    const candidateIdColumn = findHeaderColumn(headers, headerAliases.id);
+                    const candidateNameColumn = findHeaderColumn(headers, headerAliases.name);
+                    const candidateGenderColumn = findHeaderColumn(headers, headerAliases.gender);
+
+                    // 姓名和性别是排座所必需的；找到学号时优先采用更完整的表头行。
+                    if (candidateNameColumn === -1 || candidateGenderColumn === -1) continue;
+                    const score = 2 + (candidateIdColumn !== -1 ? 1 : 0);
+                    if (score > bestHeaderScore) {
+                        bestHeaderScore = score;
                         headerRowIndex = rowIndex;
-                        break;
+                        idColumn = candidateIdColumn;
+                        nameColumn = candidateNameColumn;
+                        genderColumn = candidateGenderColumn;
                     }
+                    if (score === 3) break;
                 }
 
-                if (headerRowIndex === -1) throw new Error('前 10 行中没有找到“姓名”和“性别”列头');
+                if (headerRowIndex === -1) {
+                    throw new Error('前 50 行中没有找到包含“姓名”和“性别”的表头，请检查列名');
+                }
 
                 const importedStudents = [];
                 const seenIds = new Set();
@@ -1210,7 +1234,7 @@
                 currentSeatRecordPath = '';
                 renderStudents();
                 updateSeatRosterStatus();
-                alert(`✅ 导入成功：共读取到 ${studentsData.length} 名学生！`);
+                alert(`✅ 导入成功：已自动识别第 ${headerRowIndex + 1} 行为表头，共读取到 ${studentsData.length} 名学生！`);
             } catch (error) {
                 console.error('学生名单导入失败', error);
                 alert('读取名单失败：' + error.message);
